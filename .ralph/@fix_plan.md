@@ -1,38 +1,39 @@
-# Fix Plan - LP Intel
+# Fix Plan - Agent Market
 
 ## Tasks
 
-- [ ] Task 1: Set up project skeleton with OnchainOS + Uniswap skill dependencies
-  - Acceptance: `npx skills add okx/onchainos-skills` and `npx skills add uniswap/uniswap-ai` install successfully, project structure matches OnchainOS skill format
-  - Files: package.json, src/index.ts, skill manifest
+- [ ] Task 1: Write ServiceRegistry.sol smart contract
+  - Acceptance: Contract compiles. Has registerService, getServices, getService functions. Stores name, endpoint URL, price, description, payment token, owner.
+  - Files: contracts/ServiceRegistry.sol
 
-- [ ] Task 2: Implement Uniswap V3 IL calculation engine
-  - Acceptance: Given token0Price at entry, token0Price now, tickLower, tickUpper -> returns IL% that matches manual calculation within 5%
-  - Files: src/il-calculator.ts
+- [ ] Task 2: Deploy ServiceRegistry to X Layer mainnet
+  - Acceptance: Contract deployed and verified on X Layer explorer. Address saved to .env.example and README.
+  - Files: hardhat.config.ts or foundry.toml, scripts/deploy.ts
+  - Note: X Layer RPC: rpc.xlayer.tech, Chain ID: 196, gas token: OKB
 
-- [ ] Task 3: Wire skill to OnchainOS dex-market for live price/tick data
-  - Acceptance: Skill queries a real Uniswap V3 pool and gets current tick, liquidity, token prices
-  - Files: src/data-fetcher.ts
+- [ ] Task 3: Build MCP server with register_service tool
+  - Acceptance: MCP client can call register_service(name, endpoint, price, description) and it writes to the on-chain registry
+  - Files: src/mcp-server.ts, src/tools/register.ts
 
-- [ ] Task 4: Build core skill tool: `analyze_lp_position(wallet, pool_address)`
-  - Acceptance: Agent calls tool, gets back { il_percent, current_tick, position_range, risk_level, rebalance_suggestion }
-  - Files: src/tools/analyze-position.ts
+- [ ] Task 4: Build MCP server discover_services tool
+  - Acceptance: MCP client calls discover_services() or discover_services(category) and gets back list of registered services with names, endpoints, prices
+  - Files: src/tools/discover.ts
 
-- [ ] Task 5: Expose skill via MCP server interface
-  - Acceptance: MCP-compatible client can discover and call the analyze_lp_position tool
-  - Files: src/mcp-server.ts
+- [ ] Task 5: Build MCP server use_service tool with x402 auto-payment
+  - Acceptance: MCP client calls use_service(serviceId, params). Tool discovers endpoint from registry, makes HTTP request, handles x402 payment challenge via onchainos x402-pay, returns service response.
+  - Files: src/tools/use-service.ts
 
-- [ ] Task 6: Add x402 premium tier (historical IL, optimized range suggestions)
-  - Acceptance: Free tier returns basic IL. x402-gated tier returns historical analysis + range optimization
-  - Files: src/tools/premium-analysis.ts, src/x402-gate.ts
+- [ ] Task 6: Build demo x402-gated token risk scoring service
+  - Acceptance: HTTP endpoint at /score?token=0x... Returns 402 if no payment. Returns {riskScore, factors[]} after x402 payment. Uses onchainos security scan + Uniswap liquidity check internally.
+  - Files: services/token-risk/server.ts
 
-- [ ] Task 7: Deploy skill infrastructure on X Layer mainnet
-  - Acceptance: Skill is accessible and functional when pointed at X Layer RPC
-  - Files: deploy config, .env.example
+- [ ] Task 7: Register demo service in Agent Market and test full loop
+  - Acceptance: Demo service registered on-chain. Agent discovers it via MCP. Agent calls use_service, pays x402, gets risk score back. Full loop works end-to-end.
+  - Files: scripts/register-demo.ts, test/e2e.test.ts
 
-- [ ] Task 8: Create demo showing agent economy loop
-  - Acceptance: Video/demo shows: agent pays x402 -> gets LP intelligence -> decides to rebalance -> cycle visible
-  - Files: demo/
+- [ ] Task 8: Write SKILL.md for Plugin Store
+  - Acceptance: SKILL.md with proper YAML frontmatter, teaches agents how to register services, discover services, and use services via Agent Market
+  - Files: skills/agent-market/SKILL.md
 
 ## Completed
 (builder fills this in)

@@ -16,12 +16,12 @@
 
 ---
 
-# LP Intel - OnchainOS Skill for LP Risk Intelligence
+# Agent Market - On-chain Service Registry for AI Agent Economy
 
 ## Phase 1 Gate (MUST PASS BEFORE ANY OTHER WORK)
-**Core Action:** AI agent calls the skill with a wallet address + Uniswap pool address, gets back IL calculation and tick risk assessment
-**Success Test:** Skill returns correct IL% for a known V3 position (within 5% of manual calc)
-**NOT Phase 1:** x402 premium, web dashboard, historical analysis, rebalance automation, polish
+**Core Action:** Agent A registers an x402-gated service on X Layer. Agent B discovers it via MCP. Agent B calls it, pays x402, gets result back.
+**Success Test:** End-to-end loop works: register → discover → pay x402 → receive response. All on X Layer mainnet.
+**NOT Phase 1:** Multiple services, UI, complex scoring, landing page, branding
 
 ## Build Order (ENFORCED)
 1. Core action works end-to-end (skill receives query, returns IL data)
@@ -36,13 +36,24 @@
 - **Required:** OnchainOS + Uniswap Skills + X Layer mainnet deployment
 
 ## Required Tech
-- OnchainOS skills: `npx skills add okx/onchainos-skills`
-- Uniswap AI skills: `npx skills add uniswap/uniswap-ai`
-- MCP server exposure: https://web3.okx.com/api/v1/onchainos-mcp
-- x402 payment: okx-x402-payment skill for premium tier
-- X Layer mainnet: zkEVM L2, OKB gas, <$0.01 fees
+- Solidity: Service registry contract (deploy via Hardhat/Foundry)
+- X Layer mainnet: RPC rpc.xlayer.tech, Chain ID 196, OKB gas, <$0.01 fees
+- OnchainOS CLI: v2.2.6 at ~/.local/bin/onchainos (needs VPN for API calls)
+- OnchainOS skills: x402-payment, security, dex-token
+- Uniswap AI: pay-with-any-token, swap-integration (liquidity depth)
+- TypeScript MCP server for new tools (register/discover/use_service)
+- SKILL.md for Plugin Store submission
 
-## Research Base
-Ideas #3 (LP tax calculator, Tier 1) + #5 (DeFi param simulation, Tier 1)
-Full research: ~/Projects/real-problems-and-products.md
-Ideas summary: ~/Projects/IDEAS-SUMMARY.md
+## Key Reference Files
+- onchainos-skills repo cloned at: _onchainos-skills/
+- uniswap-ai repo cloned at: _uniswap-ai/
+- x402 payment skill: _onchainos-skills/skills/okx-x402-payment/SKILL.md
+- MCP server source: _onchainos-skills/cli/src/mcp/mod.rs (1846 lines, Rust)
+- Uniswap pay-with-any-token: _uniswap-ai/packages/plugins/uniswap-trading/skills/pay-with-any-token/SKILL.md
+
+## X Layer DeFi Reality (verified April 8 via DeFiLlama)
+- Total TVL: $25.4M
+- Uniswap V3: $12.69M (half the chain)
+- Aave V3: $0.23M (launched March 30)
+- Everything else: dust
+- This is why we build INFRASTRUCTURE, not DeFi optimization
