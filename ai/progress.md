@@ -1,31 +1,51 @@
-# Agent Market - Progress
+# LP Intel - Progress
 
 ## What Changed (Plain English)
-Pivoted from LP analytics to Agent Market after deep technical exploration revealed:
-- X Layer DeFi is too thin ($25M TVL, Aave $230K) for DeFi optimization tools
-- OnchainOS skills are markdown instruction files, not compiled SDKs
-- The real gap is agent service discovery -- agents can pay (x402) but can't find services
-- onchainos CLI v2.2.6 installed and working (needs VPN for API calls)
-- Both onchainos-skills and uniswap-ai repos cloned and analyzed
+- Built the full LP analyzer tool from scratch
+- It scans any wallet for Uniswap V3 positions on Ethereum/Arbitrum/Base/Polygon
+- Shows position value, impermanent loss, uncollected fees, risk level
+- Generates Uniswap links to rebalance out-of-range positions
+- Tested against real on-chain data and it works
 
 ## Current State
-- Phase 1 Gate: NOT STARTED
-- Idea: Agent Market (on-chain service registry for x402-gated agent services)
-- onchainos CLI: installed at ~/.local/bin/onchainos
-- Reference repos cloned: _onchainos-skills/, _uniswap-ai/
-- Calendar: Deadline Apr 15 with 3-day alarm
-- X Layer RPC works without VPN: rpc.xlayer.tech
+- **Phase:** Phase 1 COMPLETE. Core action works end-to-end.
+- **Track:** Skill Arena
+- **Idea:** LP Risk Intelligence - analyze Uniswap V3 positions for IL, fees, P&L
+
+## What Works
+- Position discovery via NonfungiblePositionManager
+- Token info resolution (symbol, decimals)
+- Pool state reading (sqrtPriceX96, current tick)
+- IL calculation (V2 formula as proxy)
+- Position value in USD (via CoinGecko fallback)
+- Risk assessment (in-range, near-edge, out-of-range)
+- Rebalancing deep links to Uniswap
+- Multi-chain support (Ethereum, Arbitrum, Base, Polygon)
+- JSON output mode for programmatic use
 
 ## What's Next
-1. Write ServiceRegistry.sol (simple: register, discover, get)
-2. Deploy to X Layer mainnet
-3. Build MCP server with register/discover/use_service tools
-4. Build demo x402-gated token risk scoring service
-5. Wire end-to-end: register → discover → pay x402 → get result
-6. Write SKILL.md
-7. Demo video + submission
+1. Write SKILL.md for hackathon submission
+2. Add onchainos price integration (currently using CoinGecko fallback)
+3. Improve entry price estimation (currently tick midpoint)
+4. Add rebalancing deep link with pre-filled price range
+5. Write README
+6. Record demo
+7. Submit to Moltbook
 
-## Blockers
-- OKX APIs need VPN (all web3.okx.com endpoints timeout without it)
-- X Layer RPC works without VPN (chain reads are fine)
-- Need OKB for gas on X Layer mainnet deployment
+## Known Limitations (honest)
+- Entry price uses tick range midpoint (approximate)
+- IL formula is V2 standard, not V3-concentrated (gives directional signal but not exact)
+- Full-range positions (meme tokens) show misleading IL
+- Uncollected fees show tokensOwed only (not accrued but uncollected)
+- onchainos not tested (using CoinGecko fallback)
+- Free RPC endpoints are rate-limited, may need retries
+
+## Files
+- `src/types.ts` - Chain configs, ABIs, types
+- `src/positions.ts` - V3 position reader via viem
+- `src/calculations.ts` - IL, token amounts, risk assessment
+- `src/onchainos.ts` - OnchainOS + CoinGecko price resolution
+- `src/index.ts` - CLI entry point
+
+## Deadline
+April 15, 2026 at 23:59 UTC (2 days)
