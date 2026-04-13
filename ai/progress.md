@@ -1,33 +1,44 @@
 # LP Intel - Progress
 
 ## What Changed (Plain English)
-- Built LP analyzer, tested against real on-chain data
-- Fixed all issues from two rounds of senior dev review:
-  - Real fee calculation (feeGrowthInside math, not just tokensOwed)
-  - V3 concentrated IL formula (not V2)
-  - Multi-chain token price maps (Ethereum, Arbitrum, Base, Polygon)
-  - Clean JSON mode for agent consumption (no status messages mixed in)
-  - Invalid address handling (clean error, not stack trace)
-  - Division by zero guard for extreme IL
-  - Removed dead code
-  - Removed reference SDK repos from git (were bloating the repo)
-  - Accurate SKILL.md (no false integration claims)
-  - Proper SKILL.md frontmatter (allowed-tools, model)
-  - onchainos CLI syntax matches documented API
-- Pushed to GitHub: https://github.com/Yonkoo11/lp-intel
+- Built a concentrated liquidity position analyzer across 4 review rounds
+- Scans Uniswap V3, SushiSwap V3, and PancakeSwap V3 on 4 chains
+- Shows human-readable prices (USDC/ETH not inverted), real fees, concentrated IL, risk
+- Generates rebalancing links with fee tier and tick spacing
+- Code, docs, and example output are all consistent with each other
 
 ## Current State
-- **Phase:** Ready for submission
-- **Track:** Skill Arena
+- **Phase:** Product complete. Ready for submission assets (demo video, X post).
 - **Repo:** https://github.com/Yonkoo11/lp-intel (public)
+- **Wallet:** 0x1615b19fc44bfa9966b4ef4aaa409d0dfe96ad9a
 
-## What's Next
-1. Submit to Moltbook API
-2. Vote on 5+ other projects
-3. Interact with OKX AI agent at moltbook
+## What Works (verified)
+- Position reader via multicall (tested Ethereum)
+- Fee calculation via feeGrowthInside math (shows real $2.87 fees, not $0)
+- V3 concentrated IL formula (shows -29.55% for out-of-range tight position)
+- Human-readable prices (2,356.74 USDC/WETH not 0.000424 WETH/USDC)
+- Multi-DEX scanning (Uniswap, SushiSwap, PancakeSwap per chain)
+- Clean JSON output for agents (no status messages mixed in)
+- Invalid address handling (clean error)
+- Empty result returns [] in JSON mode
+- Price: verified within 0.008% of on-chain sqrtPriceX96
+- Token amounts: mathematically verified against V3 formula
 
-## Confidence: MEDIUM-HIGH
-- Tested against real Ethereum V3 positions
-- Fees, IL, amounts all produce reasonable numbers
-- onchainos price path: NOT TESTED (needs VPN), CoinGecko fallback works
-- All claims in SKILL.md are accurate
+## What Does NOT Work (honest)
+- Entry price from mint events fails on free RPCs (log range too large)
+- Fee APY doesn't display because entry price falls back to midpoint (no daysActive)
+- onchainos price path untested (needs VPN)
+- Arbitrum/Base/Polygon untested with real positions (only verified RPC connects)
+- SushiSwap/PancakeSwap untested with real positions (verified contracts exist)
+
+## What's Left for Submission
+1. Record demo video (1-3 min)
+2. Post on X tagging @XLayerOfficial with #BuildX
+3. Fill Google Form (all field values ready except video + X post URLs)
+
+## Confidence: MEDIUM
+- Price/amounts: HIGH (verified on-chain)
+- Fees: HIGH (real feeGrowthInside math, verified nonzero)
+- IL: MEDIUM (V3 formula correct but entry price is always estimated on free RPCs)
+- Multi-DEX: LOW (contracts verified to exist but no test with real positions)
+- Multi-chain: LOW (RPCs connect but no real position data tested)
