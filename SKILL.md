@@ -122,9 +122,8 @@ User: "analyze LP positions for 0xABC on Ethereum"
 
 ## Limitations
 
-- Entry price estimation uses tick range midpoint (approximate, not historical)
-- IL formula is standard V2 (directional signal, not exact V3 concentrated)
-- Full-range positions (e.g., meme tokens with extreme tick ranges) may show misleading IL
-- tokensOwed reflects accrued-but-uncollected fees only
-- Free RPC endpoints may rate-limit; retries are built in
-- onchainos requires VPN for API calls (CoinGecko fallback available)
+- Entry price estimation uses tick range midpoint (approximate, not historical). Positions with very wide ranges (full-range meme tokens) will show misleading IL.
+- Uncollected fees use on-chain feeGrowthInside math (accurate for fees accrued since position creation or last collect). tokensOwed (previously collected but not withdrawn) is added on top.
+- Free RPC endpoints may rate-limit; retries with exponential backoff are built in.
+- onchainos requires VPN for API calls; CoinGecko fallback covers major tokens on all supported chains.
+- X Layer is not supported (Uniswap V3 NonfungiblePositionManager not deployed on X Layer as of April 2026).
