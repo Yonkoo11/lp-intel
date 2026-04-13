@@ -1,13 +1,13 @@
-# LP Intel - Uniswap V3 Position Analyzer
+# LP Intel - Concentrated Liquidity Position Analyzer
 
 ## What This Is
-A CLI tool + AI skill that analyzes any wallet's Uniswap V3 LP positions. Shows impermanent loss, fee income, risk level, and generates rebalancing links.
+CLI tool + AI skill that analyzes any wallet's V3 LP positions across Uniswap, SushiSwap, and PancakeSwap. Shows impermanent loss, real uncollected fees, fee APY, risk level, and generates rebalancing links.
 
 ## Quick Start
 ```bash
 npm install
 npx tsx src/index.ts analyze <wallet-address> --chain ethereum
-npx tsx src/index.ts analyze <wallet-address> --chain ethereum --json  # clean JSON for agents
+npx tsx src/index.ts analyze <wallet-address> --chain ethereum --json
 ```
 
 ## Hackathon Context
@@ -19,18 +19,20 @@ npx tsx src/index.ts analyze <wallet-address> --chain ethereum --json  # clean J
 ## Project Structure
 ```
 src/
-  types.ts          - Chain configs, ABIs, shared types
+  types.ts          - Chain configs, ABIs, DEX registry, shared types
   positions.ts      - V3 position reader via viem multicall
-  calculations.ts   - V3 concentrated IL, feeGrowthInside fees, token amounts, risk
-  onchainos.ts      - OnchainOS CLI wrapper + CoinGecko fallback
-  index.ts          - Commander CLI entry point
+  calculations.ts   - V3 concentrated IL, feeGrowthInside fees, token amounts, fee APY, risk
+  onchainos.ts      - OnchainOS CLI wrapper + CoinGecko batch fallback
+  history.ts        - Entry price resolution from NFT mint Transfer events
+  index.ts          - Commander CLI, multi-DEX scanning, human-readable output
 SKILL.md            - Skill definition for Plugin Store
 ```
 
 ## Key Technical Decisions
 1. **viem for contract reads** - OnchainOS can't do read-only calls
-2. **onchainos market price for pricing** - with CoinGecko fallback when VPN not available
-3. **V3 concentrated IL formula** - accounts for tick range, not the simplified V2 formula
+2. **onchainos market price** - with CoinGecko batch fallback
+3. **V3 concentrated IL formula** - accounts for tick range concentration
 4. **Real fee math** - feeGrowthGlobal + feeGrowthOutside ticks, not just tokensOwed
-5. **Tick midpoint for entry price** - approximate since contracts don't store creation price
-6. **Free RPCs** - 1rpc.io for Ethereum, public endpoints for other chains
+5. **Entry price from mint events** - Transfer(0x0) log lookup with estimated-block optimization
+6. **Multi-DEX** - Same ABI, different NPM addresses per DEX
+7. **Price display** - Detects stablecoin pairs and inverts for human-readable output

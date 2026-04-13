@@ -1,6 +1,6 @@
 ---
 name: lp-intel
-description: "Use this skill when the user asks to analyze LP positions, check impermanent loss, review Uniswap V3 position health, calculate LP P&L, or assess LP risk. Typical triggers: 'analyze my LP positions', 'check impermanent loss', 'how are my LP positions doing', 'Uniswap position health', 'LP risk analysis', 'show my V3 positions', 'am I losing money on my LP', 'should I rebalance my position'. Supports Ethereum, Arbitrum, Base, and Polygon. Reads on-chain Uniswap V3 position data, calculates token amounts, IL, fees, and risk. Generates Uniswap deep links for rebalancing out-of-range positions."
+description: "Use this skill when the user asks to analyze LP positions, check impermanent loss, review position health, calculate LP P&L, fee APY, or assess LP risk. Works with Uniswap V3, SushiSwap V3, and PancakeSwap V3 on Ethereum, Arbitrum, Base, and Polygon. Typical triggers: 'analyze my LP positions', 'check impermanent loss', 'how are my LP positions doing', 'position health', 'LP risk analysis', 'show my V3 positions', 'am I losing money on my LP', 'should I rebalance', 'what is my fee APY', 'check my SushiSwap positions'. Reads on-chain position data, calculates token amounts, concentrated IL, real uncollected fees via feeGrowthInside math, fee APY, and risk. Generates Uniswap deep links for rebalancing."
 allowed-tools: Read, Glob, Grep, Bash(npx:*), Bash(node:*), WebFetch
 model: sonnet
 license: MIT
@@ -10,76 +10,73 @@ metadata:
   homepage: "https://github.com/yonkoo11/lp-intel"
 ---
 
-# LP Intel - Uniswap V3 Position Analyzer
+# LP Intel - Concentrated Liquidity Position Analyzer
 
-Analyze any wallet's Uniswap V3 LP positions for impermanent loss, fee income, net P&L, and risk.
+Analyze any wallet's concentrated liquidity positions across Uniswap V3, SushiSwap V3, and PancakeSwap V3 for impermanent loss, fee income, fee APY, net P&L, and risk.
 
 ## What It Does
 
 Given a wallet address and chain, LP Intel:
-1. Discovers all Uniswap V3 positions owned by the wallet
-2. Reads on-chain position data (tick range, liquidity, uncollected fees via feeGrowthInside math)
-3. Gets current pool prices and token metadata
-4. Calculates position value, concentrated-liquidity IL, fee income, and net P&L
-5. Assesses risk (in-range, near-edge, out-of-range)
-6. Generates Uniswap deep links for rebalancing (compatible with liquidity-planner skill format)
+1. Scans all V3-fork DEXes on the chain (Uniswap, SushiSwap, PancakeSwap)
+2. Discovers all positions owned by the wallet on each DEX
+3. Reads on-chain position data (tick range, liquidity, feeGrowthInsideLastX128)
+4. Reads pool feeGrowthGlobal and tick feeGrowthOutside to compute real uncollected fees
+5. Resolves entry price from NFT mint event Transfer logs (falls back to tick midpoint)
+6. Calculates position value, concentrated-liquidity IL, fee income, fee APY, and net P&L
+7. Assesses risk (in-range, near-edge, out-of-range)
+8. Generates Uniswap deep links for rebalancing (with fee tier and tick spacing)
 
 ## Prerequisites
-
-The `lp-intel` CLI must be installed in the project:
 
 ```bash
 cd /path/to/lp-intel
 npm install
-npm run build
 ```
 
 For price data, the tool uses:
-- **onchainos** (preferred): `onchainos market price` for real-time prices via okx-dex-market skill
-- **CoinGecko** (fallback): Free API for major tokens across all supported chains
+- **onchainos** (preferred): `onchainos market price` via okx-dex-market skill
+- **CoinGecko** (fallback): Batch API for major tokens across all supported chains
 - **Stablecoin defaults**: USDC/USDT/DAI default to $1.00
 
 ## Commands
 
-### Analyze Positions
-
 ```bash
-# Analyze positions on a specific chain
+# Analyze positions on a specific chain (scans all DEXes on that chain)
 npx tsx src/index.ts analyze <wallet-address> --chain ethereum
 
 # Analyze across all supported chains
 npx tsx src/index.ts analyze <wallet-address> --all-chains
 
-# JSON output for programmatic/agent use (no status messages, clean JSON only)
+# JSON output for programmatic/agent use (clean JSON only, no status messages)
 npx tsx src/index.ts analyze <wallet-address> --chain ethereum --json
 ```
 
-### Supported Chains
+### Supported Chains and DEXes
 
-| Chain    | Chain ID | NPM Address |
-|----------|----------|-------------|
-| Ethereum | 1        | 0xC36442b4a4522E871399CD717aBDD847Ab11FE88 |
-| Arbitrum | 42161    | 0xC36442b4a4522E871399CD717aBDD847Ab11FE88 |
-| Base     | 8453     | 0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1 |
-| Polygon  | 137      | 0xC36442b4a4522E871399CD717aBDD847Ab11FE88 |
+| Chain    | DEXes Scanned |
+|----------|---------------|
+| Ethereum | Uniswap V3, SushiSwap V3, PancakeSwap V3 |
+| Arbitrum | Uniswap V3, SushiSwap V3 |
+| Base     | Uniswap V3, SushiSwap V3 |
+| Polygon  | Uniswap V3, SushiSwap V3 |
 
 ## Output Format
 
-For each position:
-
 ```
-Position #378780 -- WETH/USDC (0.05% fee)
+Position #378780 -- WETH/USDC (0.05% fee) [Uniswap V3]
 Chain: Ethereum | Status: OUT OF RANGE
 
   Price Range:    1,255.19 -- 1,293.42 USDC/WETH
-  Current Price:  2,258.26 USDC/WETH
+  Current Price:  2,356.74 USDC/WETH
 
   Token Amounts:  19.93 USDC + 0.00 WETH
   Position Value: $19.93
 
-  Uncollected Fees: +$2.79 (USDC: 1.01, WETH: 0.000788)
-  Impermanent Loss: -$7.59 (-27.59%)
-  Net P&L:          -$4.80 (-17.45%)
+  Uncollected Fees: +$2.87 (USDC: 1.01, WETH: 0.000788)
+  Fee APY (est):    52.3%
+  Days Active:      34
+  Impermanent Loss: -$8.36 (-29.55%)
+  Net P&L:          -$5.49 (-19.41%)
 
   Risk: HIGH -- Price is outside position range
   Action: REBALANCE -- not earning fees
@@ -87,46 +84,36 @@ Chain: Ethereum | Status: OUT OF RANGE
   [Rebalance on Uniswap](https://app.uniswap.org/positions/create?...)
 ```
 
-JSON output (`--json`) returns a clean array of position objects with all fields, suitable for agent consumption. BigInt values are serialized as strings.
+JSON output (`--json`) returns a clean array of position objects. BigInt values serialized as strings.
 
 ## Integration with OnchainOS
 
-LP Intel uses the `onchainos market price` command (from the `okx-dex-market` skill) for real-time token pricing. When onchainos is unavailable, it falls back to CoinGecko.
+Uses `onchainos market price` (okx-dex-market skill) for real-time token pricing. Falls back to CoinGecko batch API when onchainos is unavailable.
 
 ## Integration with Uniswap AI Skills
 
-- Generates rebalancing deep links in the same URL format as the `liquidity-planner` skill (including fee tier, tick spacing, and step params)
-- Uses viem for on-chain contract reads, following the same patterns as the `viem-integration` foundation
-
-## Execution Flow
-
-```
-User: "analyze LP positions for 0xABC on Ethereum"
-                    |
-                    v
-    1. Read NonfungiblePositionManager.balanceOf(0xABC)
-    2. For each position: read tick range, liquidity, feeGrowthInsideLastX128
-    3. Get pool sqrtPriceX96 from V3 Pool.slot0()
-    4. Get pool feeGrowthGlobal + tick feeGrowthOutside for fee math
-    5. Get token prices (onchainos -> CoinGecko -> stablecoin default)
-    6. Calculate: amounts, value, concentrated IL, real uncollected fees, risk
-    7. Display formatted report (or JSON for agents)
-    8. For out-of-range: generate Uniswap rebalance deep link
-```
+- Generates rebalancing deep links in the `liquidity-planner` URL format (fee tier, tick spacing, step params)
+- Uses viem for on-chain contract reads following `viem-integration` patterns
 
 ## Technical Details
 
 ### Fee Calculation
-Uncollected fees are computed using the actual on-chain feeGrowthInside math from UniswapV3Pool, not just the `tokensOwed` field (which only reflects fees from before the last collect/increaseLiquidity call). The formula reads `feeGrowthGlobal`, `feeGrowthOutside` for both boundary ticks, and the position's `feeGrowthInsideLastX128` to compute the real accrued fees.
+Uncollected fees use the on-chain feeGrowthInside math from UniswapV3Pool. Reads `feeGrowthGlobal0X128`, `feeGrowthGlobal1X128` from the pool, `feeGrowthOutside0X128`/`feeGrowthOutside1X128` from both boundary ticks, and the position's `feeGrowthInsideLastX128` to compute real accrued fees. `tokensOwed` (previously collected but not withdrawn) is added on top.
 
 ### IL Calculation
-Impermanent loss uses the V3 concentrated liquidity formula, accounting for the position's specific tick range. This properly amplifies IL relative to the concentration ratio, unlike the V2 infinite-range approximation.
+Uses the V3 concentrated liquidity IL formula accounting for the position's specific tick range. Properly amplifies IL relative to concentration ratio.
+
+### Entry Price Resolution
+Attempts to find the position's NFT mint block via Transfer event logs, then reads the pool's historical sqrtPriceX96 at that block. Falls back to tick range midpoint with an `(est)` tag. Archive RPC access improves success rate.
+
+### Fee APY
+When position age is known (from mint event), annualizes the fee yield: `(feeIncomeUSD / positionValueUSD) * (365 / daysActive)`.
 
 ## Limitations
 
-- Entry price estimation uses tick range midpoint (approximate, not historical). Positions with very wide ranges (full-range meme tokens) will show misleading IL.
-- Uncollected fees use on-chain feeGrowthInside math (accurate). tokensOwed (previously collected but not withdrawn) is added on top.
-- Free RPC endpoints may rate-limit; retries are built in (5 retries, 2s delay).
-- onchainos requires VPN for API calls; CoinGecko fallback covers major tokens on all supported chains.
-- X Layer is not supported (Uniswap V3 NonfungiblePositionManager not deployed on X Layer as of April 2026).
-- For very large positions (liquidity > 9e15), token amounts may have reduced precision due to JavaScript number limitations.
+- Entry price from mint events requires archive RPC access for old positions. Free RPCs may reject large log queries. Falls back to tick midpoint with `(est)` tag.
+- Full-range positions (meme tokens with extreme tick ranges) show misleading IL estimates.
+- Free RPC endpoints may rate-limit; 5 retries with 2s delay built in.
+- onchainos requires VPN; CoinGecko batch fallback covers major tokens on all 4 chains.
+- X Layer not supported (V3 NPM not deployed there as of April 2026).
+- Positions with liquidity > 9e15 may have reduced precision due to JavaScript number limits.

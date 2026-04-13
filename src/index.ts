@@ -3,7 +3,7 @@ import { Command } from 'commander';
 import { getAddress } from 'viem';
 import { CHAINS } from './types.js';
 import type { ChainConfig, PositionAnalysis } from './types.js';
-import { getAllPositions, getPoolState, getTokenInfo, getTickData } from './positions.js';
+import { getAllPositions, getPoolState, getTokenInfo, getTickData, getClient } from './positions.js';
 import { analyzePosition } from './calculations.js';
 import { resolveTokenPrice, batchFetchPrices } from './onchainos.js';
 import { resolveEntryPrice } from './history.js';
@@ -119,13 +119,15 @@ program
             // Resolve real entry price from mint event
             log(`  Analyzing position #${pos.tokenId}...`);
             await delay(200);
+            const viemClient = getClient(dexChain);
             const history = await resolveEntryPrice(
+              viemClient,
               pos.tokenId,
               dex.nonfungiblePositionManager,
               poolState.poolAddress,
               pos.tickLower, pos.tickUpper,
               token0Info.decimals, token1Info.decimals,
-              dexChain
+              chain.name
             );
 
             const analysis = analyzePosition(

@@ -21,7 +21,7 @@ const VIEM_CHAINS: Record<string, Chain> = {
 
 const clients = new Map<string, PublicClient>();
 
-function getClient(chain: ChainConfig): PublicClient {
+export function getClient(chain: ChainConfig): PublicClient {
   if (!clients.has(chain.name)) {
     const viemChain = VIEM_CHAINS[chain.name];
     clients.set(

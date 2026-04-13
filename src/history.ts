@@ -1,24 +1,6 @@
-import { type PublicClient, parseAbiItem } from 'viem';
-import { createPublicClient, http, type Chain } from 'viem';
-import { mainnet, arbitrum, base, polygon } from 'viem/chains';
-import type { ChainConfig } from './types.js';
+import { parseAbiItem, type PublicClient } from 'viem';
 import { sqrtPriceX96ToPrice } from './calculations.js';
 import { POOL_ABI } from './types.js';
-
-const VIEM_CHAINS: Record<string, Chain> = {
-  Ethereum: mainnet,
-  Arbitrum: arbitrum,
-  Base: base,
-  Polygon: polygon,
-};
-
-function getArchiveClient(chain: ChainConfig): PublicClient {
-  const viemChain = VIEM_CHAINS[chain.name];
-  return createPublicClient({
-    chain: viemChain,
-    transport: http(chain.rpcUrl, { retryCount: 3, retryDelay: 2000 }),
-  });
-}
 
 const TRANSFER_EVENT = parseAbiItem(
   'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
@@ -26,61 +8,73 @@ const TRANSFER_EVENT = parseAbiItem(
 
 // NPM deployment blocks (approximate) to avoid scanning from block 0
 const NPM_DEPLOY_BLOCKS: Record<string, bigint> = {
-  Ethereum: 12369621n,  // Uniswap V3 NPM deploy ~May 2021
-  Arbitrum: 165n,        // Very early on Arbitrum
-  Base: 2000000n,        // Base launched mid-2023
-  Polygon: 22757547n,    // Uniswap V3 on Polygon ~Dec 2021
+  Ethereum: 12369621n,
+  Arbitrum: 165n,
+  Base: 2000000n,
+  Polygon: 22757547n,
 };
 
 export interface PositionHistory {
   creationBlock: bigint;
-  creationTimestamp: number; // unix seconds
-  entryPrice: number; // token1 per token0 at creation
+  creationTimestamp: number;
+  entryPrice: number;
   entryPriceSource: 'mint-event' | 'tick-midpoint';
   daysActive: number;
 }
 
-// Find when a position NFT was minted by looking for Transfer from address(0)
-export async function getPositionCreationBlock(
+// Find when a position NFT was minted
+async function getPositionCreationBlock(
+  client: PublicClient,
   tokenId: bigint,
   npmAddress: `0x${string}`,
-  chain: ChainConfig
+  chainName: string
 ): Promise<bigint | null> {
-  const client = getArchiveClient(chain);
-  const deployBlock = NPM_DEPLOY_BLOCKS[chain.name] ?? 0n;
-
-  // Strategy: use binary search by block range chunks
-  // Free RPCs typically allow ~2000-10000 block ranges
+  const deployBlock = NPM_DEPLOY_BLOCKS[chainName] ?? 0n;
   const latest = await client.getBlockNumber();
-  const CHUNK = 50000n;
 
-  // Try scanning in chunks from deploy block
-  // For tokenIds, higher = newer, so start from recent blocks first for high tokenIds
-  // and from deploy block for low tokenIds
-  const isLikelyRecent = tokenId > 500000n;
+  // Strategy 1: Try full range first (works on RPCs that support indexed topic filtering)
+  try {
+    const logs = await client.getLogs({
+      address: npmAddress,
+      event: TRANSFER_EVENT,
+      args: { from: '0x0000000000000000000000000000000000000000', tokenId },
+      fromBlock: deployBlock,
+      toBlock: latest,
+    });
+    if (logs.length > 0) return logs[0].blockNumber;
+  } catch {
+    // Full range rejected -- fall through to chunked search
+  }
 
-  if (isLikelyRecent) {
-    // Scan backwards from latest in chunks
-    for (let end = latest; end > deployBlock; end -= CHUNK) {
-      const start = end - CHUNK > deployBlock ? end - CHUNK : deployBlock;
-      try {
-        const logs = await client.getLogs({
-          address: npmAddress,
-          event: TRANSFER_EVENT,
-          args: { from: '0x0000000000000000000000000000000000000000', tokenId },
-          fromBlock: start,
-          toBlock: end,
-        });
-        if (logs.length > 0) return logs[0].blockNumber;
-      } catch {
-        // Chunk too large, try smaller
-        continue;
-      }
-    }
-  } else {
-    // Scan forwards from deploy block
-    for (let start = deployBlock; start < latest; start += CHUNK) {
-      const end = start + CHUNK < latest ? start + CHUNK : latest;
+  // Strategy 2: Estimate block from tokenId ratio, search a narrow window
+  // Higher tokenId = created later. Use linear interpolation.
+  const totalBlocks = latest - deployBlock;
+  // Rough estimate: ~800K positions minted over ~10M blocks on Ethereum
+  const estimatedBlock = deployBlock + (totalBlocks * tokenId) / 900000n;
+  const searchRadius = 200000n; // +/- 200K blocks around estimate
+
+  const searchStart = estimatedBlock > searchRadius + deployBlock
+    ? estimatedBlock - searchRadius
+    : deployBlock;
+  const searchEnd = estimatedBlock + searchRadius < latest
+    ? estimatedBlock + searchRadius
+    : latest;
+
+  // Try the estimated window
+  try {
+    const logs = await client.getLogs({
+      address: npmAddress,
+      event: TRANSFER_EVENT,
+      args: { from: '0x0000000000000000000000000000000000000000', tokenId },
+      fromBlock: searchStart,
+      toBlock: searchEnd,
+    });
+    if (logs.length > 0) return logs[0].blockNumber;
+  } catch {
+    // Window too large, try smaller chunks
+    const CHUNK = 50000n;
+    for (let start = searchStart; start < searchEnd; start += CHUNK) {
+      const end = start + CHUNK < searchEnd ? start + CHUNK : searchEnd;
       try {
         const logs = await client.getLogs({
           address: npmAddress,
@@ -101,14 +95,12 @@ export async function getPositionCreationBlock(
 
 // Get the pool price at a specific historical block
 async function getHistoricalPrice(
+  client: PublicClient,
   poolAddress: `0x${string}`,
   blockNumber: bigint,
   decimals0: number,
-  decimals1: number,
-  chain: ChainConfig
+  decimals1: number
 ): Promise<number | null> {
-  const client = getArchiveClient(chain);
-
   try {
     const slot0 = await client.readContract({
       address: poolAddress,
@@ -124,8 +116,9 @@ async function getHistoricalPrice(
   }
 }
 
-// Full entry price resolution: try mint event first, fall back to tick midpoint
+// Full entry price resolution
 export async function resolveEntryPrice(
+  client: PublicClient,
   tokenId: bigint,
   npmAddress: `0x${string}`,
   poolAddress: `0x${string}`,
@@ -133,24 +126,20 @@ export async function resolveEntryPrice(
   tickUpper: number,
   decimals0: number,
   decimals1: number,
-  chain: ChainConfig
+  chainName: string
 ): Promise<PositionHistory> {
   const now = Date.now() / 1000;
 
-  // Try to find mint block
-  const creationBlock = await getPositionCreationBlock(tokenId, npmAddress, chain);
+  const creationBlock = await getPositionCreationBlock(client, tokenId, npmAddress, chainName);
 
   if (creationBlock !== null) {
-    const client = getArchiveClient(chain);
-
     try {
       const block = await client.getBlock({ blockNumber: creationBlock });
       const creationTimestamp = Number(block.timestamp);
       const daysActive = Math.max(1, (now - creationTimestamp) / 86400);
 
-      // Get pool price at that block
       const historicalPrice = await getHistoricalPrice(
-        poolAddress, creationBlock, decimals0, decimals1, chain
+        client, poolAddress, creationBlock, decimals0, decimals1
       );
 
       if (historicalPrice !== null && historicalPrice > 0) {
@@ -176,6 +165,6 @@ export async function resolveEntryPrice(
     creationTimestamp: 0,
     entryPrice,
     entryPriceSource: 'tick-midpoint',
-    daysActive: 0, // unknown
+    daysActive: 0,
   };
 }
