@@ -10,8 +10,8 @@ Point it at any wallet address and get a full breakdown of their Uniswap V3 posi
 
 - **Position Discovery** - Finds all V3 positions via NonfungiblePositionManager
 - **Value Calculation** - Token amounts and USD value at current prices
-- **Impermanent Loss** - IL estimate vs holding the original tokens
-- **Fee Income** - Uncollected fees in USD
+- **Impermanent Loss** - V3 concentrated IL calculation accounting for tick range
+- **Fee Income** - Real uncollected fees via on-chain feeGrowthInside math
 - **Risk Assessment** - In-range, near-edge, or out-of-range status
 - **Rebalancing** - Generates Uniswap deep links for out-of-range positions
 
@@ -34,7 +34,7 @@ npx tsx src/index.ts analyze <address> --chain polygon
 # All chains at once
 npx tsx src/index.ts analyze <address> --all-chains
 
-# JSON output
+# JSON output (clean, no status messages -- for agent/programmatic use)
 npx tsx src/index.ts analyze <address> --chain ethereum --json
 ```
 
@@ -50,9 +50,9 @@ Chain: Ethereum | Status: OUT OF RANGE
   Token Amounts:  19.93 USDC + 0.00 WETH
   Position Value: $19.93
 
-  Uncollected Fees: +$0.00
-  Impermanent Loss: -$0.79 (-3.81%)
-  Net P&L:          -$0.79 (-3.81%)
+  Uncollected Fees: +$2.77 (USDC: 1.01, WETH: 0.000788)
+  Impermanent Loss: -$7.39 (-27.04%)
+  Net P&L:          -$4.62 (-16.91%)
 
   Risk: HIGH -- Price is outside position range
   Action: REBALANCE -- not earning fees
@@ -63,21 +63,21 @@ Chain: Ethereum | Status: OUT OF RANGE
 ## How It Works
 
 1. Reads `balanceOf` and `positions` from Uniswap V3's NonfungiblePositionManager
-2. Gets current pool state from `slot0` (sqrtPriceX96, tick)
+2. Gets pool state from `slot0` + `feeGrowthGlobal` + tick `feeGrowthOutside`
 3. Resolves token prices via onchainos or CoinGecko
 4. Calculates token amounts using V3 concentrated liquidity math
-5. Estimates IL using price ratio formula
-6. Assesses risk based on current price position within the tick range
+5. Computes real uncollected fees using feeGrowthInside differential
+6. Estimates IL using V3 concentrated formula (accounts for tick range)
+7. Assesses risk based on current price position within the tick range
 
 ## OnchainOS Integration
 
-- `onchainos market price` for real-time token prices
-- `onchainos defi positions` for DeFi position discovery
+- `onchainos market price` (okx-dex-market skill) for real-time token prices
 - Falls back to CoinGecko when onchainos is unavailable
 
 ## Uniswap AI Skills Integration
 
-- Generates deep links compatible with the `liquidity-planner` skill format
+- Generates deep links compatible with the `liquidity-planner` skill format (includes fee tier, tick spacing)
 - Uses viem for contract reads (same approach as `viem-integration` skill)
 
 ## Tech Stack

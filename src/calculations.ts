@@ -265,7 +265,9 @@ export function analyzePosition(
       token0Info.decimals, token1Info.decimals
     );
     // HODL value estimate from IL percentage
-    hodlValueUSD = positionValueUSD / (1 + ilPercent);
+    // Guard: if IL approaches -100% or worse, clamp to avoid division by zero
+    const ilClamped = Math.max(ilPercent, -0.9999);
+    hodlValueUSD = positionValueUSD / (1 + ilClamped);
     ilUSD = positionValueUSD - hodlValueUSD;
     netPnLUSD = ilUSD + feeIncomeUSD;
     netPnLPercent = hodlValueUSD > 0 ? netPnLUSD / hodlValueUSD : 0;

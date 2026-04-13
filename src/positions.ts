@@ -39,7 +39,7 @@ function getClient(chain: ChainConfig): PublicClient {
   return clients.get(chain.name)!;
 }
 
-export async function getPositionCount(
+async function getPositionCount(
   owner: `0x${string}`,
   chain: ChainConfig
 ): Promise<number> {
@@ -72,50 +72,6 @@ export async function getPositionTokenIds(
   return results
     .filter((r) => r.status === 'success')
     .map((r) => r.result as bigint);
-}
-
-export async function getPositionData(
-  tokenId: bigint,
-  chain: ChainConfig
-): Promise<PositionData> {
-  const client = getClient(chain);
-  const result = await client.readContract({
-    address: chain.nonfungiblePositionManager,
-    abi: NPM_ABI,
-    functionName: 'positions',
-    args: [tokenId],
-  });
-
-  const [
-    nonce,
-    operator,
-    token0,
-    token1,
-    fee,
-    tickLower,
-    tickUpper,
-    liquidity,
-    feeGrowthInside0LastX128,
-    feeGrowthInside1LastX128,
-    tokensOwed0,
-    tokensOwed1,
-  ] = result;
-
-  return {
-    tokenId,
-    nonce: BigInt(nonce),
-    operator: operator as `0x${string}`,
-    token0: token0 as `0x${string}`,
-    token1: token1 as `0x${string}`,
-    fee: Number(fee),
-    tickLower: Number(tickLower),
-    tickUpper: Number(tickUpper),
-    liquidity: BigInt(liquidity),
-    feeGrowthInside0LastX128: BigInt(feeGrowthInside0LastX128),
-    feeGrowthInside1LastX128: BigInt(feeGrowthInside1LastX128),
-    tokensOwed0: BigInt(tokensOwed0),
-    tokensOwed1: BigInt(tokensOwed1),
-  };
 }
 
 export async function getAllPositions(

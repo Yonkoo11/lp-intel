@@ -22,34 +22,44 @@ program
   .option('--all-chains', 'Analyze across all supported chains')
   .option('--json', 'Output as JSON')
   .action(async (address: string, opts: { chain: string; allChains?: boolean; json?: boolean }) => {
-    const addr = getAddress(address) as `0x${string}`;
+    let addr: `0x${string}`;
+    try {
+      addr = getAddress(address) as `0x${string}`;
+    } catch {
+      console.error(`Invalid wallet address: ${address}`);
+      process.exit(1);
+    }
+
     const chains = opts.allChains
       ? Object.keys(CHAINS)
       : [opts.chain];
+
+    const log = opts.json ? () => {} : (msg: string) => console.log(msg);
+    const logErr = (msg: string) => console.error(msg);
 
     const allAnalyses: PositionAnalysis[] = [];
 
     for (const chainName of chains) {
       const chain = CHAINS[chainName];
       if (!chain) {
-        console.error(`Unknown chain: ${chainName}`);
+        logErr(`Unknown chain: ${chainName}`);
         continue;
       }
 
-      console.log(`\nScanning ${chain.name} for Uniswap V3 positions...`);
+      log(`\nScanning ${chain.name} for Uniswap V3 positions...`);
 
       try {
         const positions = await getAllPositions(addr, chain);
 
         if (positions.length === 0) {
-          console.log(`  No positions found on ${chain.name}`);
+          log(`  No positions found on ${chain.name}`);
           continue;
         }
 
         // Filter out closed positions (zero liquidity)
         const active = positions.filter((p) => p.liquidity > 0n);
         const closed = positions.length - active.length;
-        console.log(`  Found ${positions.length} positions (${active.length} active, ${closed} closed)`);
+        log(`  Found ${positions.length} positions (${active.length} active, ${closed} closed)`);
 
         // Cache token info and prices
         const tokenCache = new Map<string, Awaited<ReturnType<typeof getTokenInfo>>>();
