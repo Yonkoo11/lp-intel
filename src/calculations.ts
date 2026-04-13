@@ -174,7 +174,10 @@ export function analyzePosition(
   price0USD: number,
   price1USD: number,
   chain: string,
+  dex: string,
   entryPrice?: number,
+  entryPriceSource: 'mint-event' | 'tick-midpoint' = 'tick-midpoint',
+  daysActive?: number,
   tickLowerData?: TickData,
   tickUpperData?: TickData
 ): PositionAnalysis {
@@ -245,6 +248,12 @@ export function analyzePosition(
 
   const feeIncomeUSD = fees0 * price0USD + fees1 * price1USD;
 
+  // Fee APY (if we know how long the position has been active)
+  let feeAPY: number | undefined;
+  if (daysActive && daysActive > 0 && positionValueUSD > 0) {
+    feeAPY = (feeIncomeUSD / positionValueUSD) * (365 / daysActive);
+  }
+
   // Risk assessment
   const { risk, reason, action } = assessRisk(inRange, rangePosition, liquidity);
 
@@ -273,6 +282,7 @@ export function analyzePosition(
   return {
     tokenId: position.tokenId,
     chain,
+    dex,
     token0: token0Info,
     token1: token1Info,
     feeTier: position.fee,
@@ -289,7 +299,10 @@ export function analyzePosition(
     tokensOwed0: fees0,
     tokensOwed1: fees1,
     feeIncomeUSD,
+    feeAPY,
+    daysActive,
     entryPrice,
+    entryPriceSource,
     ilPercent,
     ilUSD,
     hodlValueUSD,

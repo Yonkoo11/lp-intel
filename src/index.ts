@@ -2,21 +2,22 @@
 import { Command } from 'commander';
 import { getAddress } from 'viem';
 import { CHAINS } from './types.js';
+import type { ChainConfig, PositionAnalysis } from './types.js';
 import { getAllPositions, getPoolState, getTokenInfo, getTickData } from './positions.js';
 import { analyzePosition } from './calculations.js';
 import { resolveTokenPrice, batchFetchPrices } from './onchainos.js';
-import type { PositionAnalysis } from './types.js';
+import { resolveEntryPrice } from './history.js';
 
 const program = new Command();
 
 program
   .name('lp-intel')
-  .description('Uniswap V3 LP Position Analyzer')
+  .description('Concentrated Liquidity Position Analyzer')
   .version('1.0.0');
 
 program
   .command('analyze')
-  .description('Analyze Uniswap V3 LP positions for a wallet')
+  .description('Analyze V3-fork LP positions for a wallet')
   .argument('<address>', 'Wallet address to analyze')
   .option('-c, --chain <chain>', 'Chain to analyze (ethereum, arbitrum, base, polygon)', 'ethereum')
   .option('--all-chains', 'Analyze across all supported chains')
@@ -35,107 +36,120 @@ program
       : [opts.chain];
 
     const log = opts.json ? () => {} : (msg: string) => console.log(msg);
-    const logErr = (msg: string) => console.error(msg);
 
     const allAnalyses: PositionAnalysis[] = [];
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
     for (const chainName of chains) {
       const chain = CHAINS[chainName];
       if (!chain) {
-        logErr(`Unknown chain: ${chainName}`);
+        console.error(`Unknown chain: ${chainName}`);
         continue;
       }
 
-      log(`\nScanning ${chain.name} for Uniswap V3 positions...`);
+      // Scan all DEXes on this chain
+      for (const dex of chain.dexes) {
+        log(`\nScanning ${chain.name} ${dex.name} positions...`);
 
-      try {
-        const positions = await getAllPositions(addr, chain);
+        const dexChain: ChainConfig = { ...chain, nonfungiblePositionManager: dex.nonfungiblePositionManager, uniswapV3Factory: dex.uniswapV3Factory };
 
-        if (positions.length === 0) {
-          log(`  No positions found on ${chain.name}`);
-          continue;
+        try {
+          const positions = await getAllPositions(addr, dexChain);
+
+          if (positions.length === 0) {
+            log(`  No positions found on ${dex.name}`);
+            continue;
+          }
+
+          const active = positions.filter((p) => p.liquidity > 0n);
+          const closed = positions.length - active.length;
+          log(`  Found ${positions.length} positions (${active.length} active, ${closed} closed)`);
+
+          // Cache token info and prices
+          const tokenCache = new Map<string, Awaited<ReturnType<typeof getTokenInfo>>>();
+          const priceCache = new Map<string, number>();
+
+          // Batch-prefetch CoinGecko prices
+          const allTokenAddrs = new Set<string>();
+          for (const pos of active) {
+            allTokenAddrs.add(pos.token0);
+            allTokenAddrs.add(pos.token1);
+          }
+          await batchFetchPrices([...allTokenAddrs]);
+
+          for (const pos of active) {
+            // Get token info
+            if (!tokenCache.has(pos.token0)) {
+              tokenCache.set(pos.token0, await getTokenInfo(pos.token0, dexChain));
+              await delay(200);
+            }
+            if (!tokenCache.has(pos.token1)) {
+              tokenCache.set(pos.token1, await getTokenInfo(pos.token1, dexChain));
+              await delay(200);
+            }
+            const token0Info = tokenCache.get(pos.token0)!;
+            const token1Info = tokenCache.get(pos.token1)!;
+
+            // Get prices
+            if (!priceCache.has(pos.token0)) {
+              priceCache.set(pos.token0, await resolveTokenPrice(pos.token0, chainName));
+            }
+            if (!priceCache.has(pos.token1)) {
+              priceCache.set(pos.token1, await resolveTokenPrice(pos.token1, chainName));
+            }
+            const price0USD = priceCache.get(pos.token0)!;
+            const price1USD = priceCache.get(pos.token1)!;
+
+            // Get pool state
+            await delay(200);
+            const poolState = await getPoolState(pos.token0, pos.token1, pos.fee, dexChain);
+
+            // Get tick data for fee calculation
+            await delay(200);
+            let tickLowerData, tickUpperData;
+            try {
+              [tickLowerData, tickUpperData] = await Promise.all([
+                getTickData(poolState.poolAddress, pos.tickLower, dexChain),
+                getTickData(poolState.poolAddress, pos.tickUpper, dexChain),
+              ]);
+            } catch {
+              // Fall back to tokensOwed only
+            }
+
+            // Resolve real entry price from mint event
+            log(`  Analyzing position #${pos.tokenId}...`);
+            await delay(200);
+            const history = await resolveEntryPrice(
+              pos.tokenId,
+              dex.nonfungiblePositionManager,
+              poolState.poolAddress,
+              pos.tickLower, pos.tickUpper,
+              token0Info.decimals, token1Info.decimals,
+              dexChain
+            );
+
+            const analysis = analyzePosition(
+              pos,
+              poolState,
+              token0Info,
+              token1Info,
+              price0USD,
+              price1USD,
+              chain.name,
+              dex.name,
+              history.entryPrice,
+              history.entryPriceSource,
+              history.daysActive || undefined,
+              tickLowerData,
+              tickUpperData
+            );
+
+            allAnalyses.push(analysis);
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`  Error scanning ${chain.name} ${dex.name}: ${msg}`);
         }
-
-        // Filter out closed positions (zero liquidity)
-        const active = positions.filter((p) => p.liquidity > 0n);
-        const closed = positions.length - active.length;
-        log(`  Found ${positions.length} positions (${active.length} active, ${closed} closed)`);
-
-        // Cache token info and prices
-        const tokenCache = new Map<string, Awaited<ReturnType<typeof getTokenInfo>>>();
-        const priceCache = new Map<string, number>();
-
-        const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-        // Batch-prefetch CoinGecko prices for all unique tokens in one call
-        const allTokenAddrs = new Set<string>();
-        for (const pos of active) {
-          allTokenAddrs.add(pos.token0);
-          allTokenAddrs.add(pos.token1);
-        }
-        await batchFetchPrices([...allTokenAddrs]);
-
-        for (const pos of active) {
-          // Get token info
-          if (!tokenCache.has(pos.token0)) {
-            tokenCache.set(pos.token0, await getTokenInfo(pos.token0, chain));
-            await delay(300);
-          }
-          if (!tokenCache.has(pos.token1)) {
-            tokenCache.set(pos.token1, await getTokenInfo(pos.token1, chain));
-            await delay(300);
-          }
-          const token0Info = tokenCache.get(pos.token0)!;
-          const token1Info = tokenCache.get(pos.token1)!;
-
-          // Get prices (cache already warm from batch prefetch)
-          if (!priceCache.has(pos.token0)) {
-            priceCache.set(pos.token0, await resolveTokenPrice(pos.token0, chainName));
-          }
-          if (!priceCache.has(pos.token1)) {
-            priceCache.set(pos.token1, await resolveTokenPrice(pos.token1, chainName));
-          }
-          const price0USD = priceCache.get(pos.token0)!;
-          const price1USD = priceCache.get(pos.token1)!;
-
-          // Get pool state
-          await delay(300);
-          const poolState = await getPoolState(pos.token0, pos.token1, pos.fee, chain);
-
-          // Get tick data for fee calculation
-          await delay(300);
-          let tickLowerData, tickUpperData;
-          try {
-            [tickLowerData, tickUpperData] = await Promise.all([
-              getTickData(poolState.poolAddress, pos.tickLower, chain),
-              getTickData(poolState.poolAddress, pos.tickUpper, chain),
-            ]);
-          } catch {
-            // Fall back to tokensOwed only
-          }
-
-          // Entry price: use tick range midpoint as rough estimate
-          const midTick = (pos.tickLower + pos.tickUpper) / 2;
-          const entryPrice = 1.0001 ** midTick * 10 ** (token0Info.decimals - token1Info.decimals);
-
-          const analysis = analyzePosition(
-            pos,
-            poolState,
-            token0Info,
-            token1Info,
-            price0USD,
-            price1USD,
-            chain.name,
-            entryPrice,
-            tickLowerData,
-            tickUpperData
-          );
-
-          allAnalyses.push(analysis);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(`  Error scanning ${chain.name}: ${msg}`);
       }
     }
 
@@ -149,7 +163,6 @@ program
     }
 
     if (opts.json) {
-      // JSON output for programmatic use
       console.log(JSON.stringify(allAnalyses, (_k, v) =>
         typeof v === 'bigint' ? v.toString() : v, 2));
       return;
@@ -157,27 +170,21 @@ program
 
     // Pretty print
     console.log('\n' + '='.repeat(60));
-    console.log('  LP INTEL - Uniswap V3 Position Analysis');
+    console.log('  LP INTEL - Concentrated Liquidity Position Analysis');
     console.log('='.repeat(60));
 
     for (const a of allAnalyses) {
       printPosition(a);
     }
 
-    // Summary
     printSummary(allAnalyses);
   });
 
 const STABLECOINS = new Set(['USDC', 'USDT', 'DAI', 'BUSD', 'USDbC', 'USDC.e']);
 
-// Decide whether to invert the price display so humans see a natural quote
-// e.g., show "2,230 USDC/ETH" instead of "0.000448 WETH/USDC"
 function shouldInvertDisplay(token0Symbol: string, token1Symbol: string): boolean {
-  // If token0 is stablecoin and token1 is not: price is already "token1 per stablecoin" -- invert to show "stablecoin per token1"
-  // If token1 is stablecoin: price is "stablecoin per token0" -- don't invert, this is the human-readable direction
   if (STABLECOINS.has(token1Symbol)) return false;
   if (STABLECOINS.has(token0Symbol)) return true;
-  // If neither is a stablecoin, keep raw direction
   return false;
 }
 
@@ -195,7 +202,7 @@ function printPosition(a: PositionAnalysis) {
   const displayPriceUpper = invert ? 1 / a.priceLower : a.priceUpper;
   const displayCurrentPrice = invert ? 1 / a.currentPrice : a.currentPrice;
 
-  console.log(`\nPosition #${a.tokenId} -- ${pairLabel} (${feePercent}% fee)`);
+  console.log(`\nPosition #${a.tokenId} -- ${pairLabel} (${feePercent}% fee) [${a.dex}]`);
   console.log(`Chain: ${a.chain} | Status: ${statusColor}${status}${reset}`);
   console.log('');
   console.log(`  Price Range:    ${fmt(displayPriceLower)} -- ${fmt(displayPriceUpper)} ${quoteSymbol}/${baseSymbol}`);
@@ -206,9 +213,17 @@ function printPosition(a: PositionAnalysis) {
   console.log('');
   console.log(`  Uncollected Fees: +$${fmt(a.feeIncomeUSD)} (${a.token0.symbol}: ${fmt(a.tokensOwed0)}, ${a.token1.symbol}: ${fmt(a.tokensOwed1)})`);
 
+  if (a.feeAPY !== undefined) {
+    console.log(`  Fee APY (est):    ${(a.feeAPY * 100).toFixed(1)}%`);
+  }
+  if (a.daysActive !== undefined) {
+    console.log(`  Days Active:      ${a.daysActive.toFixed(0)}`);
+  }
+
   if (a.ilPercent !== undefined) {
     const ilSign = a.ilUSD! >= 0 ? '+' : '';
-    console.log(`  Impermanent Loss: ${ilSign}$${fmt(a.ilUSD!)} (${(a.ilPercent * 100).toFixed(2)}%)`);
+    const sourceTag = a.entryPriceSource === 'mint-event' ? '' : ' (est)';
+    console.log(`  Impermanent Loss: ${ilSign}$${fmt(a.ilUSD!)} (${(a.ilPercent * 100).toFixed(2)}%)${sourceTag}`);
   }
 
   if (a.netPnLUSD !== undefined) {
@@ -219,13 +234,11 @@ function printPosition(a: PositionAnalysis) {
   console.log('');
 
   const riskColors: Record<string, string> = { LOW: '\x1b[32m', MEDIUM: '\x1b[33m', HIGH: '\x1b[31m' };
-  console.log(`  Risk: ${riskColors[a.risk]}${a.risk}${'\x1b[0m'} -- ${a.riskReason}`);
+  console.log(`  Risk: ${riskColors[a.risk]}${a.risk}${reset} -- ${a.riskReason}`);
   console.log(`  Action: ${a.action}`);
 
-  // Rebalance link for out-of-range positions
   if (!a.inRange) {
     const chainUrl = a.chain.toLowerCase();
-    // Include fee tier and step=1 as expected by Uniswap interface
     const feeParam = `{%22feeAmount%22:${a.feeTier},%22tickSpacing%22:${getTickSpacing(a.feeTier)},%22isDynamic%22:false}`;
     const link = `https://app.uniswap.org/positions/create?chain=${chainUrl}&currencyA=${a.token0.address}&currencyB=${a.token1.address}&fee=${feeParam}&step=1`;
     console.log(`\n  [Rebalance on Uniswap](${link})`);
@@ -240,10 +253,14 @@ function printSummary(analyses: PositionAnalysis[]) {
   const inRange = analyses.filter((a) => a.inRange).length;
   const outOfRange = analyses.length - inRange;
 
+  // Group by DEX
+  const dexes = new Set(analyses.map(a => a.dex));
+
   console.log('\n' + '='.repeat(60));
   console.log('  SUMMARY');
   console.log('='.repeat(60));
   console.log(`  Total Positions: ${analyses.length} (${inRange} in range, ${outOfRange} out of range)`);
+  console.log(`  DEXes Scanned:   ${[...dexes].join(', ')}`);
   console.log(`  Total Value:     $${fmt(totalValue)}`);
   console.log(`  Total Fees:      +$${fmt(totalFees)}`);
 
