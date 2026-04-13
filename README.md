@@ -41,18 +41,18 @@ npx tsx src/index.ts analyze <address> --chain ethereum --json
 ## Example Output
 
 ```
-Position #378780 -- USDC/WETH (0.05% fee)
+Position #378780 -- WETH/USDC (0.05% fee)
 Chain: Ethereum | Status: OUT OF RANGE
 
-  Price Range:    0.000773 -- 0.000797 WETH/USDC
-  Current Price:  0.000448 WETH/USDC
+  Price Range:    1,255.19 -- 1,293.42 USDC/WETH
+  Current Price:  2,258.26 USDC/WETH
 
   Token Amounts:  19.93 USDC + 0.00 WETH
   Position Value: $19.93
 
-  Uncollected Fees: +$2.77 (USDC: 1.01, WETH: 0.000788)
-  Impermanent Loss: -$7.39 (-27.04%)
-  Net P&L:          -$4.62 (-16.91%)
+  Uncollected Fees: +$2.79 (USDC: 1.01, WETH: 0.000788)
+  Impermanent Loss: -$7.59 (-27.59%)
+  Net P&L:          -$4.80 (-17.45%)
 
   Risk: HIGH -- Price is outside position range
   Action: REBALANCE -- not earning fees

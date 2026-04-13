@@ -80,6 +80,9 @@ const COMMON_TOKENS: Record<string, string> = {
   '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063': 'dai', // DAI
 };
 
+// Cache CoinGecko results to avoid duplicate calls
+const cgCache = new Map<string, number>();
+
 export async function getTokenPriceFallback(
   tokenAddress: string
 ): Promise<number | null> {
@@ -87,14 +90,42 @@ export async function getTokenPriceFallback(
   const cgId = COMMON_TOKENS[addr];
   if (!cgId) return null;
 
+  // Check cache first
+  if (cgCache.has(cgId)) return cgCache.get(cgId)!;
+
   try {
     const resp = await fetch(
       `https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=usd`
     );
     const data = (await resp.json()) as Record<string, { usd: number }>;
-    return data[cgId]?.usd ?? null;
+    const price = data[cgId]?.usd ?? null;
+    if (price !== null) cgCache.set(cgId, price);
+    return price;
   } catch {
     return null;
+  }
+}
+
+// Batch-fetch prices for multiple tokens in one CoinGecko call
+export async function batchFetchPrices(tokenAddresses: string[]): Promise<void> {
+  const cgIds = new Set<string>();
+  for (const addr of tokenAddresses) {
+    const cgId = COMMON_TOKENS[addr.toLowerCase()];
+    if (cgId && !cgCache.has(cgId)) cgIds.add(cgId);
+  }
+  if (cgIds.size === 0) return;
+
+  try {
+    const ids = [...cgIds].join(',');
+    const resp = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`
+    );
+    const data = (await resp.json()) as Record<string, { usd: number }>;
+    for (const [id, val] of Object.entries(data)) {
+      if (val?.usd) cgCache.set(id, val.usd);
+    }
+  } catch {
+    // Individual fallback will handle failures
   }
 }
 

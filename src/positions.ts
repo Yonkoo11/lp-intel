@@ -53,7 +53,7 @@ async function getPositionCount(
   return Number(count);
 }
 
-export async function getPositionTokenIds(
+async function getPositionTokenIds(
   owner: `0x${string}`,
   chain: ChainConfig
 ): Promise<bigint[]> {

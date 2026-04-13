@@ -4,7 +4,7 @@ import { getAddress } from 'viem';
 import { CHAINS } from './types.js';
 import { getAllPositions, getPoolState, getTokenInfo, getTickData } from './positions.js';
 import { analyzePosition } from './calculations.js';
-import { resolveTokenPrice } from './onchainos.js';
+import { resolveTokenPrice, batchFetchPrices } from './onchainos.js';
 import type { PositionAnalysis } from './types.js';
 
 const program = new Command();
@@ -67,6 +67,14 @@ program
 
         const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+        // Batch-prefetch CoinGecko prices for all unique tokens in one call
+        const allTokenAddrs = new Set<string>();
+        for (const pos of active) {
+          allTokenAddrs.add(pos.token0);
+          allTokenAddrs.add(pos.token1);
+        }
+        await batchFetchPrices([...allTokenAddrs]);
+
         for (const pos of active) {
           // Get token info
           if (!tokenCache.has(pos.token0)) {
@@ -80,7 +88,7 @@ program
           const token0Info = tokenCache.get(pos.token0)!;
           const token1Info = tokenCache.get(pos.token1)!;
 
-          // Get prices
+          // Get prices (cache already warm from batch prefetch)
           if (!priceCache.has(pos.token0)) {
             priceCache.set(pos.token0, await resolveTokenPrice(pos.token0, chainName));
           }
@@ -132,7 +140,11 @@ program
     }
 
     if (allAnalyses.length === 0) {
-      console.log('\nNo active positions found.');
+      if (opts.json) {
+        console.log('[]');
+      } else {
+        console.log('\nNo active positions found.');
+      }
       return;
     }
 
@@ -156,17 +168,38 @@ program
     printSummary(allAnalyses);
   });
 
+const STABLECOINS = new Set(['USDC', 'USDT', 'DAI', 'BUSD', 'USDbC', 'USDC.e']);
+
+// Decide whether to invert the price display so humans see a natural quote
+// e.g., show "2,230 USDC/ETH" instead of "0.000448 WETH/USDC"
+function shouldInvertDisplay(token0Symbol: string, token1Symbol: string): boolean {
+  // If token0 is stablecoin and token1 is not: price is already "token1 per stablecoin" -- invert to show "stablecoin per token1"
+  // If token1 is stablecoin: price is "stablecoin per token0" -- don't invert, this is the human-readable direction
+  if (STABLECOINS.has(token1Symbol)) return false;
+  if (STABLECOINS.has(token0Symbol)) return true;
+  // If neither is a stablecoin, keep raw direction
+  return false;
+}
+
 function printPosition(a: PositionAnalysis) {
   const feePercent = (a.feeTier / 10000).toFixed(2);
   const status = a.inRange ? 'IN RANGE' : 'OUT OF RANGE';
   const statusColor = a.inRange ? '\x1b[32m' : '\x1b[31m';
   const reset = '\x1b[0m';
 
-  console.log(`\nPosition #${a.tokenId} -- ${a.token0.symbol}/${a.token1.symbol} (${feePercent}% fee)`);
+  const invert = shouldInvertDisplay(a.token0.symbol, a.token1.symbol);
+  const baseSymbol = invert ? a.token1.symbol : a.token0.symbol;
+  const quoteSymbol = invert ? a.token0.symbol : a.token1.symbol;
+  const pairLabel = `${baseSymbol}/${quoteSymbol}`;
+  const displayPriceLower = invert ? 1 / a.priceUpper : a.priceLower;
+  const displayPriceUpper = invert ? 1 / a.priceLower : a.priceUpper;
+  const displayCurrentPrice = invert ? 1 / a.currentPrice : a.currentPrice;
+
+  console.log(`\nPosition #${a.tokenId} -- ${pairLabel} (${feePercent}% fee)`);
   console.log(`Chain: ${a.chain} | Status: ${statusColor}${status}${reset}`);
   console.log('');
-  console.log(`  Price Range:    ${fmt(a.priceLower)} -- ${fmt(a.priceUpper)} ${a.token1.symbol}/${a.token0.symbol}`);
-  console.log(`  Current Price:  ${fmt(a.currentPrice)} ${a.token1.symbol}/${a.token0.symbol}`);
+  console.log(`  Price Range:    ${fmt(displayPriceLower)} -- ${fmt(displayPriceUpper)} ${quoteSymbol}/${baseSymbol}`);
+  console.log(`  Current Price:  ${fmt(displayCurrentPrice)} ${quoteSymbol}/${baseSymbol}`);
   console.log('');
   console.log(`  Token Amounts:  ${fmt(a.amount0)} ${a.token0.symbol} + ${fmt(a.amount1)} ${a.token1.symbol}`);
   console.log(`  Position Value: $${fmt(a.positionValueUSD)}`);

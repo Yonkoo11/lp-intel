@@ -131,12 +131,9 @@ export function calculateIL(
   const sqrtEntryC = Math.max(sqrtPa, Math.min(sqrtPb, sqrtEntry));
   const sqrtCurrentC = Math.max(sqrtPa, Math.min(sqrtPb, sqrtCurrent));
 
-  // LP value at entry (L=1, in terms of token1)
-  const x0 = (sqrtPb - sqrtEntryC) / (sqrtEntryC * sqrtPb); // token0 amount
-  const y0 = sqrtEntryC - sqrtPa; // token1 amount
-  const valueEntry = x0 * entryPrice / decAdj + y0; // normalized
-
-  if (valueEntry === 0) return 0;
+  // Token amounts at entry (L=1, in raw tick-space units)
+  const x0 = (sqrtPb - sqrtEntryC) / (sqrtEntryC * sqrtPb); // token0
+  const y0 = sqrtEntryC - sqrtPa; // token1
 
   // LP value now
   const x1 = (sqrtPb - sqrtCurrentC) / (sqrtCurrentC * sqrtPb);
