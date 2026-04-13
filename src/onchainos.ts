@@ -31,14 +31,11 @@ export async function getTokenPrice(
   tokenAddress: string,
   chain: string
 ): Promise<number | null> {
-  const result = await runOnchainos([
-    'market',
-    'price',
-    '--address',
-    tokenAddress,
-    '--chain',
-    chain,
-  ]);
+  // onchainos market price --address <address>
+  // Chain may be inferred from address or specifiable via --chain
+  const args = ['market', 'price', '--address', tokenAddress];
+  if (chain) args.push('--chain', chain);
+  const result = await runOnchainos(args);
   if (!result.success || !result.data) return null;
 
   // Parse price from onchainos output
