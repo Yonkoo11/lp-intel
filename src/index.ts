@@ -38,7 +38,6 @@ program
     const log = opts.json ? () => {} : (msg: string) => console.log(msg);
 
     const allAnalyses: PositionAnalysis[] = [];
-    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
     for (const chainName of chains) {
       const chain = CHAINS[chainName];
@@ -65,63 +64,67 @@ program
           const closed = positions.length - active.length;
           log(`  Found ${positions.length} positions (${active.length} active, ${closed} closed)`);
 
-          // Cache token info and prices
+          // Step 1: Resolve all unique tokens in parallel
           const tokenCache = new Map<string, Awaited<ReturnType<typeof getTokenInfo>>>();
           const priceCache = new Map<string, number>();
-
-          // Batch-prefetch CoinGecko prices
-          const allTokenAddrs = new Set<string>();
+          const uniqueTokens = new Set<`0x${string}`>();
           for (const pos of active) {
-            allTokenAddrs.add(pos.token0);
-            allTokenAddrs.add(pos.token1);
+            uniqueTokens.add(pos.token0);
+            uniqueTokens.add(pos.token1);
           }
-          await batchFetchPrices([...allTokenAddrs]);
 
+          // Batch CoinGecko prices + resolve token info in parallel
+          const tokenArr = [...uniqueTokens];
+          await batchFetchPrices(tokenArr);
+          const [tokenInfos, prices] = await Promise.all([
+            Promise.all(tokenArr.map(addr => getTokenInfo(addr, dexChain))),
+            Promise.all(tokenArr.map(addr => resolveTokenPrice(addr, chainName))),
+          ]);
+          tokenArr.forEach((addr, i) => {
+            tokenCache.set(addr, tokenInfos[i]);
+            priceCache.set(addr, prices[i]);
+          });
+
+          // Step 2: Resolve all pool states in parallel
+          const poolKeys = new Map<string, { token0: `0x${string}`; token1: `0x${string}`; fee: number }>();
           for (const pos of active) {
-            // Get token info
-            if (!tokenCache.has(pos.token0)) {
-              tokenCache.set(pos.token0, await getTokenInfo(pos.token0, dexChain));
-              await delay(200);
-            }
-            if (!tokenCache.has(pos.token1)) {
-              tokenCache.set(pos.token1, await getTokenInfo(pos.token1, dexChain));
-              await delay(200);
-            }
+            const key = `${pos.token0}-${pos.token1}-${pos.fee}`;
+            if (!poolKeys.has(key)) poolKeys.set(key, { token0: pos.token0, token1: pos.token1, fee: pos.fee });
+          }
+          const poolStateMap = new Map<string, Awaited<ReturnType<typeof getPoolState>>>();
+          const poolEntries = [...poolKeys.entries()];
+          const poolStates = await Promise.all(
+            poolEntries.map(([, p]) => getPoolState(p.token0, p.token1, p.fee, dexChain).catch(() => null))
+          );
+          poolEntries.forEach(([key], i) => {
+            if (poolStates[i]) poolStateMap.set(key, poolStates[i]!);
+          });
+
+          // Step 3: Resolve tick data + entry prices in parallel per position
+          log(`  Analyzing ${active.length} positions...`);
+          const archiveClient = getArchiveClient(dexChain);
+
+          const analysisResults = await Promise.all(active.map(async (pos) => {
+            const poolKey = `${pos.token0}-${pos.token1}-${pos.fee}`;
+            const poolState = poolStateMap.get(poolKey);
+            if (!poolState) return null;
+
             const token0Info = tokenCache.get(pos.token0)!;
             const token1Info = tokenCache.get(pos.token1)!;
-
-            // Get prices
-            if (!priceCache.has(pos.token0)) {
-              priceCache.set(pos.token0, await resolveTokenPrice(pos.token0, chainName));
-            }
-            if (!priceCache.has(pos.token1)) {
-              priceCache.set(pos.token1, await resolveTokenPrice(pos.token1, chainName));
-            }
             const price0USD = priceCache.get(pos.token0)!;
             const price1USD = priceCache.get(pos.token1)!;
 
-            // Get pool state
-            await delay(200);
-            const poolState = await getPoolState(pos.token0, pos.token1, pos.fee, dexChain);
-
-            // Get tick data for fee calculation
-            await delay(200);
+            // Tick data + entry price in parallel
             let tickLowerData, tickUpperData;
             try {
               [tickLowerData, tickUpperData] = await Promise.all([
                 getTickData(poolState.poolAddress, pos.tickLower, dexChain),
                 getTickData(poolState.poolAddress, pos.tickUpper, dexChain),
               ]);
-            } catch {
-              // Fall back to tokensOwed only
-            }
+            } catch { /* fall back to tokensOwed */ }
 
-            // Resolve real entry price from mint event
-            log(`  Analyzing position #${pos.tokenId}...`);
-            await delay(200);
-            const viemClient = getArchiveClient(dexChain);
             const history = await resolveEntryPrice(
-              viemClient,
+              archiveClient,
               pos.tokenId,
               dex.nonfungiblePositionManager,
               poolState.poolAddress,
@@ -130,23 +133,17 @@ program
               chain.name
             );
 
-            const analysis = analyzePosition(
-              pos,
-              poolState,
-              token0Info,
-              token1Info,
-              price0USD,
-              price1USD,
-              chain.name,
-              dex.name,
-              history.entryPrice,
-              history.entryPriceSource,
+            return analyzePosition(
+              pos, poolState, token0Info, token1Info,
+              price0USD, price1USD, chain.name, dex.name,
+              history.entryPrice, history.entryPriceSource,
               history.daysActive || undefined,
-              tickLowerData,
-              tickUpperData
+              tickLowerData, tickUpperData
             );
+          }));
 
-            allAnalyses.push(analysis);
+          for (const result of analysisResults) {
+            if (result) allAnalyses.push(result);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
