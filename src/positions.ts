@@ -39,6 +39,25 @@ export function getClient(chain: ChainConfig): PublicClient {
   return clients.get(chain.name)!;
 }
 
+const archiveClients = new Map<string, PublicClient>();
+
+export function getArchiveClient(chain: ChainConfig): PublicClient {
+  if (!archiveClients.has(chain.name)) {
+    const viemChain = VIEM_CHAINS[chain.name];
+    archiveClients.set(
+      chain.name,
+      createPublicClient({
+        chain: viemChain,
+        transport: http(chain.archiveRpcUrl, {
+          retryCount: 3,
+          retryDelay: 2000,
+        }),
+      })
+    );
+  }
+  return archiveClients.get(chain.name)!;
+}
+
 async function getPositionCount(
   owner: `0x${string}`,
   chain: ChainConfig

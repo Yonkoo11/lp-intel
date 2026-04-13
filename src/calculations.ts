@@ -249,8 +249,9 @@ export function analyzePosition(
   const feeIncomeUSD = fees0 * price0USD + fees1 * price1USD;
 
   // Fee APY (if we know how long the position has been active)
+  // Only show APY for positions older than 7 days to avoid misleading extrapolation
   let feeAPY: number | undefined;
-  if (daysActive && daysActive > 0 && positionValueUSD > 0) {
+  if (daysActive && daysActive >= 7 && positionValueUSD > 0) {
     feeAPY = (feeIncomeUSD / positionValueUSD) * (365 / daysActive);
   }
 

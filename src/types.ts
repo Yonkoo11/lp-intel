@@ -8,6 +8,7 @@ export interface ChainConfig {
   name: string;
   chainId: number;
   rpcUrl: string;
+  archiveRpcUrl: string; // archive node for historical queries
   nonfungiblePositionManager: `0x${string}`; // primary DEX (Uniswap)
   uniswapV3Factory: `0x${string}`;
   dexes: DexConfig[]; // all V3-fork DEXes on this chain
@@ -89,6 +90,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Ethereum',
     chainId: 1,
     rpcUrl: 'https://1rpc.io/eth',
+    archiveRpcUrl: 'https://ethereum-rpc.publicnode.com',
     nonfungiblePositionManager: '0xC36442b4a4522E871399CD717aBDD847Ab11FE88',
     uniswapV3Factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
     dexes: [
@@ -101,6 +103,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Arbitrum',
     chainId: 42161,
     rpcUrl: 'https://arb1.arbitrum.io/rpc',
+    archiveRpcUrl: 'https://arbitrum-one-rpc.publicnode.com',
     nonfungiblePositionManager: '0xC36442b4a4522E871399CD717aBDD847Ab11FE88',
     uniswapV3Factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
     dexes: [
@@ -112,6 +115,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Base',
     chainId: 8453,
     rpcUrl: 'https://mainnet.base.org',
+    archiveRpcUrl: 'https://base-rpc.publicnode.com',
     nonfungiblePositionManager: '0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1',
     uniswapV3Factory: '0x33128a8fC17869897dcE68Ed026d694621f6FDfD',
     dexes: [
@@ -123,6 +127,7 @@ export const CHAINS: Record<string, ChainConfig> = {
     name: 'Polygon',
     chainId: 137,
     rpcUrl: 'https://polygon-rpc.com',
+    archiveRpcUrl: 'https://polygon-bor-rpc.publicnode.com',
     nonfungiblePositionManager: '0xC36442b4a4522E871399CD717aBDD847Ab11FE88',
     uniswapV3Factory: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
     dexes: [

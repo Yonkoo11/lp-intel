@@ -1,12 +1,8 @@
-import { parseAbiItem, type PublicClient } from 'viem';
+import { type PublicClient } from 'viem';
 import { sqrtPriceX96ToPrice } from './calculations.js';
-import { POOL_ABI } from './types.js';
+import { POOL_ABI, NPM_ABI } from './types.js';
 
-const TRANSFER_EVENT = parseAbiItem(
-  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
-);
-
-// NPM deployment blocks (approximate) to avoid scanning from block 0
+// NPM deployment blocks to set lower bound for binary search
 const NPM_DEPLOY_BLOCKS: Record<string, bigint> = {
   Ethereum: 12369621n,
   Arbitrum: 165n,
@@ -22,8 +18,10 @@ export interface PositionHistory {
   daysActive: number;
 }
 
-// Find when a position NFT was minted
-async function getPositionCreationBlock(
+// Binary search for the mint block using ownerOf()
+// ownerOf reverts for nonexistent tokens, succeeds after mint.
+// This uses eth_call (always works on any RPC, no log range limits).
+async function findMintBlock(
   client: PublicClient,
   tokenId: bigint,
   npmAddress: `0x${string}`,
@@ -32,65 +30,49 @@ async function getPositionCreationBlock(
   const deployBlock = NPM_DEPLOY_BLOCKS[chainName] ?? 0n;
   const latest = await client.getBlockNumber();
 
-  // Strategy 1: Try full range first (works on RPCs that support indexed topic filtering)
-  try {
-    const logs = await client.getLogs({
-      address: npmAddress,
-      event: TRANSFER_EVENT,
-      args: { from: '0x0000000000000000000000000000000000000000', tokenId },
-      fromBlock: deployBlock,
-      toBlock: latest,
-    });
-    if (logs.length > 0) return logs[0].blockNumber;
-  } catch {
-    // Full range rejected -- fall through to chunked search
-  }
+  let low = deployBlock;
+  let high = latest;
 
-  // Strategy 2: Estimate block from tokenId ratio, search a narrow window
-  // Higher tokenId = created later. Use linear interpolation.
-  const totalBlocks = latest - deployBlock;
-  // Rough estimate: ~800K positions minted over ~10M blocks on Ethereum
-  const estimatedBlock = deployBlock + (totalBlocks * tokenId) / 900000n;
-  const searchRadius = 200000n; // +/- 200K blocks around estimate
+  // First check: does the token exist at all?
+  const existsNow = await tokenExistsAt(client, npmAddress, tokenId, latest);
+  if (!existsNow) return null;
 
-  const searchStart = estimatedBlock > searchRadius + deployBlock
-    ? estimatedBlock - searchRadius
-    : deployBlock;
-  const searchEnd = estimatedBlock + searchRadius < latest
-    ? estimatedBlock + searchRadius
-    : latest;
+  // Check it didn't exist at deploy (sanity)
+  const existsAtDeploy = await tokenExistsAt(client, npmAddress, tokenId, deployBlock);
+  if (existsAtDeploy) return deployBlock;
 
-  // Try the estimated window
-  try {
-    const logs = await client.getLogs({
-      address: npmAddress,
-      event: TRANSFER_EVENT,
-      args: { from: '0x0000000000000000000000000000000000000000', tokenId },
-      fromBlock: searchStart,
-      toBlock: searchEnd,
-    });
-    if (logs.length > 0) return logs[0].blockNumber;
-  } catch {
-    // Window too large, try smaller chunks
-    const CHUNK = 50000n;
-    for (let start = searchStart; start < searchEnd; start += CHUNK) {
-      const end = start + CHUNK < searchEnd ? start + CHUNK : searchEnd;
-      try {
-        const logs = await client.getLogs({
-          address: npmAddress,
-          event: TRANSFER_EVENT,
-          args: { from: '0x0000000000000000000000000000000000000000', tokenId },
-          fromBlock: start,
-          toBlock: end,
-        });
-        if (logs.length > 0) return logs[0].blockNumber;
-      } catch {
-        continue;
-      }
+  // Binary search: find the first block where ownerOf succeeds
+  while (high - low > 1n) {
+    const mid = (low + high) / 2n;
+    const exists = await tokenExistsAt(client, npmAddress, tokenId, mid);
+    if (exists) {
+      high = mid;
+    } else {
+      low = mid;
     }
   }
 
-  return null;
+  return high;
+}
+
+async function tokenExistsAt(
+  client: PublicClient,
+  npmAddress: `0x${string}`,
+  tokenId: bigint,
+  blockNumber: bigint
+): Promise<boolean> {
+  try {
+    await client.readContract({
+      address: npmAddress,
+      abi: NPM_ABI,
+      functionName: 'positions',
+      args: [tokenId],
+      blockNumber,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Get the pool price at a specific historical block
@@ -130,7 +112,8 @@ export async function resolveEntryPrice(
 ): Promise<PositionHistory> {
   const now = Date.now() / 1000;
 
-  const creationBlock = await getPositionCreationBlock(client, tokenId, npmAddress, chainName);
+  // Binary search for mint block using ownerOf (works on any RPC)
+  const creationBlock = await findMintBlock(client, tokenId, npmAddress, chainName);
 
   if (creationBlock !== null) {
     try {
