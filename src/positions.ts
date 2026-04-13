@@ -5,6 +5,7 @@ import {
   type PositionData,
   type PoolState,
   type TokenInfo,
+  type TickData,
   NPM_ABI,
   POOL_ABI,
   FACTORY_ABI,
@@ -176,17 +177,50 @@ export async function getPoolState(
     args: [token0, token1, fee],
   })) as `0x${string}`;
 
-  // Get slot0
-  const slot0 = await client.readContract({
-    address: poolAddress,
-    abi: POOL_ABI,
-    functionName: 'slot0',
+  // Validate pool exists
+  if (poolAddress === '0x0000000000000000000000000000000000000000') {
+    throw new Error(`No pool found for ${token0}/${token1} fee=${fee}`);
+  }
+
+  // Batch read slot0 + feeGrowthGlobals
+  const [slot0Result, fg0Result, fg1Result] = await client.multicall({
+    contracts: [
+      { address: poolAddress, abi: POOL_ABI, functionName: 'slot0' },
+      { address: poolAddress, abi: POOL_ABI, functionName: 'feeGrowthGlobal0X128' },
+      { address: poolAddress, abi: POOL_ABI, functionName: 'feeGrowthGlobal1X128' },
+    ],
   });
+
+  if (slot0Result.status !== 'success') throw new Error('Failed to read pool slot0');
+
+  const slot0 = slot0Result.result as readonly [bigint, number, number, number, number, number, boolean];
 
   return {
     sqrtPriceX96: BigInt(slot0[0]),
     tick: Number(slot0[1]),
     poolAddress,
+    feeGrowthGlobal0X128: fg0Result.status === 'success' ? BigInt(fg0Result.result as bigint) : 0n,
+    feeGrowthGlobal1X128: fg1Result.status === 'success' ? BigInt(fg1Result.result as bigint) : 0n,
+  };
+}
+
+export async function getTickData(
+  poolAddress: `0x${string}`,
+  tick: number,
+  chain: ChainConfig
+): Promise<TickData> {
+  const client = getClient(chain);
+  const result = await client.readContract({
+    address: poolAddress,
+    abi: POOL_ABI,
+    functionName: 'ticks',
+    args: [tick],
+  });
+
+  const data = result as readonly [bigint, bigint, bigint, bigint, bigint, bigint, number, boolean];
+  return {
+    feeGrowthOutside0X128: BigInt(data[2]),
+    feeGrowthOutside1X128: BigInt(data[3]),
   };
 }
 

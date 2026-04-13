@@ -7,15 +7,18 @@ Min Tech: Solidity registry contract on X Layer + MCP server with register/disco
 NOT Phase 1: Multiple services, fancy UI, complex risk scoring engine, landing page, branding
 Status: [ ] NOT STARTED
 
-## Hackathon Details (CORRECTED from official SKILL.md)
-- **Name:** Build X Season 2 (OKX X Layer AI Hackathon)
+## Hackathon Details (CORRECTED April 8 from live hackathon page)
+- **Name:** Build X Hackathon 2026 (OKX X Layer AI Hackathon)
 - **Deadline:** April 15, 2026 at 23:59 UTC
 - **Track:** X Layer Arena (7,000 USDT pool)
-- **Prizes:** 1st 2,000 / 2nd 1,200x2 / 3rd 600x3 / Special: Most Active Agent 400 / Most Popular 400
-- **Max with stacking:** 2,400 USDT (1st + Most Active)
-- **Submission:** Moltbook m/buildx (NOT DoraHacks)
-- **Requirement:** Must vote on 5+ other projects to be prize-eligible
+- **Prizes:** 1st 2,000 / 2nd 1,200x2 / 3rd 600x3 / Special: Most Active Agent 500 / Most Popular 500
+- **Max with stacking:** 2,500 USDT (1st + Most Active)
+- **Total hackathon pool:** 14,000 USDT (not 23K as previously noted)
+- **Submission:** Google Form + Moltbook m/buildx
+- **Google Form:** https://docs.google.com/forms/d/e/1FAIpQLSfEjzs4ny2yH04tfDXs14Byye1KYhXv6NeytpqSKhrqTtgKqg/viewform
+- **Requirement:** Must vote on 5+ other projects on Moltbook to be prize-eligible
 - **URL:** https://web3.okx.com/xlayer/build-x-hackathon
+- **Telegram:** https://t.me/+JInfz0yF9ihjNGE1
 - **Hackathon skill installed:** ~/.claude/skills/okx-buildx-hackathon-agent-track/
 
 ## Judging Criteria (OFFICIAL, each 25%)
@@ -23,6 +26,10 @@ Status: [ ] NOT STARTED
 2. X Layer Ecosystem Fit (real on-chain use cases)
 3. AI Interaction Experience (makes on-chain ops smarter/more natural)
 4. Product Completeness (actually runs, core flows work end-to-end)
+
+## Judging Method
+- AI agent judges (automated code review + onchain data analysis) + human judges
+- Final score combines both panels' weighted assessments
 
 ## Chosen Idea
 Agent Market - On-chain service registry where AI agents register x402-gated services, other agents discover them, and payments flow automatically. Infrastructure for the agent economy on X Layer.

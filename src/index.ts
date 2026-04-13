@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { getAddress } from 'viem';
 import { CHAINS } from './types.js';
-import { getAllPositions, getPoolState, getTokenInfo } from './positions.js';
+import { getAllPositions, getPoolState, getTokenInfo, getTickData } from './positions.js';
 import { analyzePosition } from './calculations.js';
 import { resolveTokenPrice } from './onchainos.js';
 import type { PositionAnalysis } from './types.js';
@@ -84,6 +84,18 @@ program
           await delay(300);
           const poolState = await getPoolState(pos.token0, pos.token1, pos.fee, chain);
 
+          // Get tick data for fee calculation
+          await delay(300);
+          let tickLowerData, tickUpperData;
+          try {
+            [tickLowerData, tickUpperData] = await Promise.all([
+              getTickData(poolState.poolAddress, pos.tickLower, chain),
+              getTickData(poolState.poolAddress, pos.tickUpper, chain),
+            ]);
+          } catch {
+            // Fall back to tokensOwed only
+          }
+
           // Entry price: use tick range midpoint as rough estimate
           const midTick = (pos.tickLower + pos.tickUpper) / 2;
           const entryPrice = 1.0001 ** midTick * 10 ** (token0Info.decimals - token1Info.decimals);
@@ -96,7 +108,9 @@ program
             price0USD,
             price1USD,
             chain.name,
-            entryPrice
+            entryPrice,
+            tickLowerData,
+            tickUpperData
           );
 
           allAnalyses.push(analysis);
@@ -168,7 +182,9 @@ function printPosition(a: PositionAnalysis) {
   // Rebalance link for out-of-range positions
   if (!a.inRange) {
     const chainUrl = a.chain.toLowerCase();
-    const link = `https://app.uniswap.org/positions/create?chain=${chainUrl}&currencyA=${a.token0.address}&currencyB=${a.token1.address}`;
+    // Include fee tier and step=1 as expected by Uniswap interface
+    const feeParam = `{%22feeAmount%22:${a.feeTier},%22tickSpacing%22:${getTickSpacing(a.feeTier)},%22isDynamic%22:false}`;
+    const link = `https://app.uniswap.org/positions/create?chain=${chainUrl}&currencyA=${a.token0.address}&currencyB=${a.token1.address}&fee=${feeParam}&step=1`;
     console.log(`\n  [Rebalance on Uniswap](${link})`);
   }
 
@@ -199,6 +215,16 @@ function printSummary(analyses: PositionAnalysis[]) {
     console.log(`\n  \x1b[31m${highRisk} position(s) need attention!\x1b[0m`);
   }
   console.log('');
+}
+
+function getTickSpacing(feeTier: number): number {
+  switch (feeTier) {
+    case 100: return 1;
+    case 500: return 10;
+    case 3000: return 60;
+    case 10000: return 200;
+    default: return 60;
+  }
 }
 
 function fmt(n: number): string {

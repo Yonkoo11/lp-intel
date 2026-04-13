@@ -54,21 +54,6 @@ export async function getTokenPrice(
   return null;
 }
 
-export async function getDefiPositions(
-  walletAddress: string,
-  chains: string[]
-): Promise<unknown> {
-  const result = await runOnchainos([
-    'defi',
-    'positions',
-    '--address',
-    walletAddress,
-    '--chains',
-    chains.join(','),
-  ]);
-  return result.success ? result.data : null;
-}
-
 // Fallback: use CoinGecko free API for prices when onchainos isn't available
 const COMMON_TOKENS: Record<string, string> = {
   // Ethereum mainnet
@@ -77,6 +62,25 @@ const COMMON_TOKENS: Record<string, string> = {
   '0xdac17f958d2ee523a2206206994597c13d831ec7': 'tether', // USDT
   '0x6b175474e89094c44da98b954eedeac495271d0f': 'dai', // DAI
   '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 'wrapped-bitcoin', // WBTC
+  // Arbitrum
+  '0x82af49447d8a07e3bd95bd0d56f35241523fbab1': 'ethereum', // WETH
+  '0xaf88d065e77c8cc2239327c5edb3a432268e5831': 'usd-coin', // USDC
+  '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8': 'usd-coin', // USDC.e (bridged)
+  '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9': 'tether', // USDT
+  '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f': 'wrapped-bitcoin', // WBTC
+  '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1': 'dai', // DAI
+  // Base
+  '0x4200000000000000000000000000000000000006': 'ethereum', // WETH
+  '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 'usd-coin', // USDC
+  '0xd9aaec86b65d86f6a7b5b1b0c42ffa531710b6ca': 'usd-coin', // USDbC (bridged)
+  '0x50c5725949a6f0c72e6c4a641f24049a917db0cb': 'dai', // DAI
+  // Polygon
+  '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619': 'ethereum', // WETH
+  '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359': 'usd-coin', // USDC
+  '0x2791bca1f2de4661ed88a30c99a7a9449aa84174': 'usd-coin', // USDC.e
+  '0xc2132d05d31c914a87c6611c10748aeb04b58e8f': 'tether', // USDT
+  '0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6': 'wrapped-bitcoin', // WBTC
+  '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063': 'dai', // DAI
 };
 
 export async function getTokenPriceFallback(
@@ -108,13 +112,9 @@ export async function resolveTokenPrice(
   price = await getTokenPriceFallback(tokenAddress);
   if (price !== null && price > 0) return price;
 
-  // Stablecoins default to $1
-  const symbol = tokenAddress.toLowerCase();
-  if (
-    symbol === '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48' || // USDC
-    symbol === '0xdac17f958d2ee523a2206206994597c13d831ec7' || // USDT
-    symbol === '0x6b175474e89094c44da98b954eedeac495271d0f'    // DAI
-  ) {
+  // Stablecoins default to $1 (check CoinGecko map for stablecoin IDs)
+  const cgId = COMMON_TOKENS[tokenAddress.toLowerCase()];
+  if (cgId === 'usd-coin' || cgId === 'tether' || cgId === 'dai') {
     return 1.0;
   }
 

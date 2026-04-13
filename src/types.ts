@@ -32,6 +32,13 @@ export interface PoolState {
   sqrtPriceX96: bigint;
   tick: number;
   poolAddress: `0x${string}`;
+  feeGrowthGlobal0X128: bigint;
+  feeGrowthGlobal1X128: bigint;
+}
+
+export interface TickData {
+  feeGrowthOutside0X128: bigint;
+  feeGrowthOutside1X128: bigint;
 }
 
 export interface PositionAnalysis {
@@ -151,6 +158,36 @@ export const POOL_ABI = [
       { name: 'observationCardinalityNext', type: 'uint16' },
       { name: 'feeProtocol', type: 'uint8' },
       { name: 'unlocked', type: 'bool' },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'feeGrowthGlobal0X128',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [],
+    name: 'feeGrowthGlobal1X128',
+    outputs: [{ name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ name: 'tick', type: 'int24' }],
+    name: 'ticks',
+    outputs: [
+      { name: 'liquidityGross', type: 'uint128' },
+      { name: 'liquidityNet', type: 'int128' },
+      { name: 'feeGrowthOutside0X128', type: 'uint256' },
+      { name: 'feeGrowthOutside1X128', type: 'uint256' },
+      { name: 'tickCumulativeOutside', type: 'int56' },
+      { name: 'secondsPerLiquidityOutsideX128', type: 'uint160' },
+      { name: 'secondsOutside', type: 'uint32' },
+      { name: 'initialized', type: 'bool' },
     ],
     stateMutability: 'view',
     type: 'function',

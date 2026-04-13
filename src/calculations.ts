@@ -1,6 +1,8 @@
-import type { PositionData, PoolState, TokenInfo, PositionAnalysis } from './types.js';
+import type { PositionData, PoolState, TokenInfo, TickData, PositionAnalysis } from './types.js';
 
 const Q96 = 2n ** 96n;
+const Q128 = 2n ** 128n;
+const MAX_UINT256 = 2n ** 256n;
 // Convert tick to sqrt price ratio (as a float)
 export function tickToSqrtPrice(tick: number): number {
   return Math.sqrt(1.0001 ** tick);
@@ -58,24 +60,94 @@ export function getTokenAmounts(
   };
 }
 
-// Calculate impermanent loss percentage using simple V3 formula
-// Uses price ratio k = currentPrice / entryPrice
-// For V3 concentrated: IL is amplified compared to V2
+// Compute feeGrowthInside for a position's tick range
+// This is the core V3 fee math from UniswapV3Pool._updatePosition
+function subMod256(a: bigint, b: bigint): bigint {
+  return ((a - b) % MAX_UINT256 + MAX_UINT256) % MAX_UINT256;
+}
+
+export function computeFeeGrowthInside(
+  tickLower: number,
+  tickUpper: number,
+  currentTick: number,
+  feeGrowthGlobal: bigint,
+  feeGrowthOutsideLower: bigint,
+  feeGrowthOutsideUpper: bigint
+): bigint {
+  // Fee growth below the lower tick
+  const feeGrowthBelow = currentTick >= tickLower
+    ? feeGrowthOutsideLower
+    : subMod256(feeGrowthGlobal, feeGrowthOutsideLower);
+
+  // Fee growth above the upper tick
+  const feeGrowthAbove = currentTick < tickUpper
+    ? feeGrowthOutsideUpper
+    : subMod256(feeGrowthGlobal, feeGrowthOutsideUpper);
+
+  return subMod256(subMod256(feeGrowthGlobal, feeGrowthBelow), feeGrowthAbove);
+}
+
+// Calculate actual uncollected fees for a position
+export function computeUncollectedFees(
+  liquidity: bigint,
+  feeGrowthInside0: bigint,
+  feeGrowthInside1: bigint,
+  feeGrowthInside0Last: bigint,
+  feeGrowthInside1Last: bigint,
+  decimals0: number,
+  decimals1: number
+): { fees0: number; fees1: number } {
+  const fees0Raw = subMod256(feeGrowthInside0, feeGrowthInside0Last) * liquidity / Q128;
+  const fees1Raw = subMod256(feeGrowthInside1, feeGrowthInside1Last) * liquidity / Q128;
+
+  return {
+    fees0: Number(fees0Raw) / 10 ** decimals0,
+    fees1: Number(fees1Raw) / 10 ** decimals1,
+  };
+}
+
+// Calculate impermanent loss for V3 concentrated liquidity
+// Uses the actual tick range to compute position value vs HODL
 export function calculateIL(
   entryPrice: number,
   currentPrice: number,
+  tickLower: number,
+  tickUpper: number,
+  decimals0: number,
+  decimals1: number
 ): number {
   if (entryPrice <= 0 || currentPrice <= 0) return 0;
 
-  // Price ratio
-  const k = currentPrice / entryPrice;
-  if (k <= 0) return 0;
+  // Convert to raw sqrt prices (without decimal adjustment)
+  const sqrtPa = tickToSqrtPrice(tickLower);
+  const sqrtPb = tickToSqrtPrice(tickUpper);
 
-  // Standard V2 IL formula: IL = 2*sqrt(k)/(1+k) - 1
-  // This gives the IL as a fraction (negative = loss vs HODL)
-  const il = (2 * Math.sqrt(k)) / (1 + k) - 1;
+  // Entry sqrt price (in raw tick space, not decimal-adjusted)
+  const decAdj = 10 ** (decimals0 - decimals1);
+  const sqrtEntry = Math.sqrt(entryPrice / decAdj);
+  const sqrtCurrent = Math.sqrt(currentPrice / decAdj);
 
-  return il;
+  // Clamp to range
+  const sqrtEntryC = Math.max(sqrtPa, Math.min(sqrtPb, sqrtEntry));
+  const sqrtCurrentC = Math.max(sqrtPa, Math.min(sqrtPb, sqrtCurrent));
+
+  // LP value at entry (L=1, in terms of token1)
+  const x0 = (sqrtPb - sqrtEntryC) / (sqrtEntryC * sqrtPb); // token0 amount
+  const y0 = sqrtEntryC - sqrtPa; // token1 amount
+  const valueEntry = x0 * entryPrice / decAdj + y0; // normalized
+
+  if (valueEntry === 0) return 0;
+
+  // LP value now
+  const x1 = (sqrtPb - sqrtCurrentC) / (sqrtCurrentC * sqrtPb);
+  const y1 = sqrtCurrentC - sqrtPa;
+  const valueNow = x1 * currentPrice / decAdj + y1;
+
+  // HODL value: same initial token amounts at current price
+  const hodlValue = x0 * currentPrice / decAdj + y0;
+
+  if (hodlValue === 0) return 0;
+  return (valueNow - hodlValue) / hodlValue;
 }
 
 // Assess risk level
@@ -105,9 +177,11 @@ export function analyzePosition(
   price0USD: number,
   price1USD: number,
   chain: string,
-  entryPrice?: number
+  entryPrice?: number,
+  tickLowerData?: TickData,
+  tickUpperData?: TickData
 ): PositionAnalysis {
-  const { tickLower, tickUpper, liquidity, tokensOwed0, tokensOwed1 } = position;
+  const { tickLower, tickUpper, liquidity } = position;
 
   // Current price (token1 per token0)
   const currentPrice = sqrtPriceX96ToPrice(
@@ -141,10 +215,38 @@ export function analyzePosition(
   // Position value in USD
   const positionValueUSD = amount0 * price0USD + amount1 * price1USD;
 
-  // Uncollected fees
-  const owed0 = Number(tokensOwed0) / 10 ** token0Info.decimals;
-  const owed1 = Number(tokensOwed1) / 10 ** token1Info.decimals;
-  const feeIncomeUSD = owed0 * price0USD + owed1 * price1USD;
+  // Compute real uncollected fees if tick data available
+  let fees0 = Number(position.tokensOwed0) / 10 ** token0Info.decimals;
+  let fees1 = Number(position.tokensOwed1) / 10 ** token1Info.decimals;
+
+  if (tickLowerData && tickUpperData && liquidity > 0n) {
+    // Compute feeGrowthInside for each token
+    const fgi0 = computeFeeGrowthInside(
+      tickLower, tickUpper, poolState.tick,
+      poolState.feeGrowthGlobal0X128,
+      tickLowerData.feeGrowthOutside0X128,
+      tickUpperData.feeGrowthOutside0X128
+    );
+    const fgi1 = computeFeeGrowthInside(
+      tickLower, tickUpper, poolState.tick,
+      poolState.feeGrowthGlobal1X128,
+      tickLowerData.feeGrowthOutside1X128,
+      tickUpperData.feeGrowthOutside1X128
+    );
+
+    const computed = computeUncollectedFees(
+      liquidity, fgi0, fgi1,
+      position.feeGrowthInside0LastX128,
+      position.feeGrowthInside1LastX128,
+      token0Info.decimals, token1Info.decimals
+    );
+
+    // Real uncollected = computed accrued + tokensOwed (already collected but not withdrawn)
+    fees0 += computed.fees0;
+    fees1 += computed.fees1;
+  }
+
+  const feeIncomeUSD = fees0 * price0USD + fees1 * price1USD;
 
   // Risk assessment
   const { risk, reason, action } = assessRisk(inRange, rangePosition, liquidity);
@@ -157,8 +259,12 @@ export function analyzePosition(
   let netPnLPercent: number | undefined;
 
   if (entryPrice !== undefined) {
-    ilPercent = calculateIL(entryPrice, currentPrice);
-    // Rough HODL value estimate
+    ilPercent = calculateIL(
+      entryPrice, currentPrice,
+      tickLower, tickUpper,
+      token0Info.decimals, token1Info.decimals
+    );
+    // HODL value estimate from IL percentage
     hodlValueUSD = positionValueUSD / (1 + ilPercent);
     ilUSD = positionValueUSD - hodlValueUSD;
     netPnLUSD = ilUSD + feeIncomeUSD;
@@ -181,8 +287,8 @@ export function analyzePosition(
     amount0,
     amount1,
     positionValueUSD,
-    tokensOwed0: owed0,
-    tokensOwed1: owed1,
+    tokensOwed0: fees0,
+    tokensOwed1: fees1,
     feeIncomeUSD,
     entryPrice,
     ilPercent,
