@@ -3,6 +3,10 @@ dist/
 *.log
 .DS_Store
 scripts/
+package-lock.json
+
+# Internal dev notes
+ai/
 
 # Reference SDK repos (not our code)
 _onchainos-skills/
