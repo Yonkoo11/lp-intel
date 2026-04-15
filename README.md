@@ -106,6 +106,18 @@ Chain: Ethereum | Status: OUT OF RANGE
 - Token amounts: mathematically verified against V3 concentrated liquidity formula
 - Fees: real feeGrowthInside math, not just tokensOwed
 
+## Agentic Wallet
+
+`0x1615b19fc44bfa9966b4ef4aaa409d0dfe96ad9a`
+
+## Team
+
+Alex ([@yonkoo11](https://github.com/Yonkoo11)) — solo builder
+
+## X Layer Ecosystem
+
+LP Intel gives agents on X Layer the ability to monitor and manage concentrated liquidity positions across V3-fork DEXes. When Uniswap V3 deploys on X Layer, the tool extends to X Layer positions with a single config addition. The SKILL.md format makes it discoverable in the OnchainOS Plugin Store, letting any agent on the network use it as a composable analysis skill.
+
 ## License
 
 MIT
